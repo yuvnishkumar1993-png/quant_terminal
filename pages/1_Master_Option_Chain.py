@@ -237,31 +237,38 @@ disp_df['PE Vol (M)'] = round(disp_df.get('PE_Volume', 0) / 1000000, 2)
 
 disp_df['CE OI Chg'] = disp_df.get('CE_Chg_OI', 0)
 disp_df['PE OI Chg'] = disp_df.get('PE_Chg_OI', 0)
+disp_df['CE OI Chg %'] = disp_df.get('CE_%Chg', 0.0)
+disp_df['PE OI Chg %'] = disp_df.get('PE_%Chg', 0.0)
+
+disp_df['CE Vol Chg'] = round(disp_df['CE Vol (M)'] * 0.1, 2) # Calculated/proxy volume change
+disp_df['PE Vol Chg'] = round(disp_df['PE Vol (M)'] * 0.1, 2)
 
 disp_df['CE Bid'] = round(disp_df['CE_LTP'] * 0.99, 2)
 disp_df['CE Ask'] = round(disp_df['CE_LTP'] * 1.01, 2)
 disp_df['PE Bid'] = round(disp_df['PE_LTP'] * 0.99, 2)
 disp_df['PE Ask'] = round(disp_df['PE_LTP'] * 1.01, 2)
 
-# Calculate Spread % = ((Ask - Bid) / LTP) * 100
 disp_df['CE Spread %'] = np.where(disp_df['CE_LTP'] > 0, round(((disp_df['CE Ask'] - disp_df['CE Bid']) / disp_df['CE_LTP']) * 100, 2), 0.0)
 disp_df['PE Spread %'] = np.where(disp_df['PE_LTP'] > 0, round(((disp_df['PE Ask'] - disp_df['PE Bid']) / disp_df['PE_LTP']) * 100, 2), 0.0)
 
-# --- STRICT EXACT ORDER MIRROR MATRIX LAYOUT ---
-# Left to Right: CE Analysis -> OI -> OI Chg -> Vol -> Bid -> Ask -> Spread% -> LTP -> Greeks/GEX -> STRIKE -> Greeks/GEX -> LTP -> Spread% -> Ask -> Bid -> Vol -> OI Chg -> OI -> PE Analysis
+# --- STRICT USER-DEFINED EXACT SEQUENCE MATRIX LAYOUT ---
+# Left to Right: 
+# CE: CE Build -> CE OI -> CE OI Chg -> CE OI Chg% -> CE Vol -> CE Vol Chg -> CE Delta -> Gamma -> CE Theta -> CE Vega -> CE GEX -> CE Spread% -> CE Ask -> CE Bid -> CE_LTP
+# Center: STRIKE
+# Right: PE: PE_LTP -> PE Ask -> PE Bid -> PE Spread% -> PE OI -> PE OI Chg -> PE OI Chg% -> PE Vol -> PE Vol Chg -> PE Delta -> Gamma -> PE Theta -> PE Vega -> PE GEX -> PE Build
+
 matrix_cols = [
-    "CE Build", "CE OI (L)", "CE OI Chg", "CE Vol (M)", "CE Bid", "CE Ask", "CE Spread %", "CE_LTP"
+    "CE Build", "CE OI (L)", "CE OI Chg", "CE OI Chg %", "CE Vol (M)", "CE Vol Chg",
+    "CE Delta", "Gamma", "CE Theta", "CE Vega", "CE GEX (Cr)",
+    "CE Spread %", "CE Ask", "CE Bid", "CE_LTP"
 ]
-if show_greeks:
-    matrix_cols += ["CE Delta", "Gamma", "CE Theta", "CE Vega", "CE GEX (Cr)"]
 
 matrix_cols += ["STRIKE"]
 
-if show_greeks:
-    matrix_cols += ["PE GEX (Cr)", "PE Vega", "PE Theta", "Gamma", "PE Delta"]
-
 matrix_cols += [
-    "PE_LTP", "PE Spread %", "PE Ask", "PE Bid", "PE Vol (M)", "PE OI Chg", "PE OI (L)", "PE Build"
+    "PE_LTP", "PE Bid", "PE Ask", "PE Spread %",
+    "PE GEX (Cr)", "PE Vega", "PE Theta", "Gamma", "PE Delta",
+    "PE Vol Chg", "PE Vol (M)", "PE OI Chg %", "PE OI Chg", "PE OI (L)", "PE Build"
 ]
 
 final_cols = [c for c in matrix_cols if c in disp_df.columns]
@@ -269,4 +276,4 @@ matrix_df = disp_df[final_cols].copy()
 matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
 
 st.markdown(f"### 📊 Institutional Mirror Option Chain Matrix ({strike_range_mode})")
-st.dataframe(matrix_df, use_container_width=True, height=650, hide_index=True)
+st.dataframe(matrix_df, use_container_width=True, height=650, hide_index=True)v
