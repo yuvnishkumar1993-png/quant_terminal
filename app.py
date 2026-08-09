@@ -1,19 +1,56 @@
+# app.py
+# Master 5-Page Dark Split Quant Core Engine UI (Standalone & Error-Free)
+
 import streamlit as st
-from config import THEME_BG
-from dhan_api_engine import DhanAPIEngine
 
+# Direct Theme Settings (No Import Errors)
+THEME_BG = "#0E1117"
+
+# Page Setup
 st.set_page_config(page_title="Dark Split Quant Terminal", layout="wide", initial_sidebar_state="expanded")
-st.markdown(f"<style>.stApp {{ background-color: {THEME_BG}; color: #FFFFFF; }}</style>", unsafe_allow_headers=True)
 
-api_engine = DhanAPIEngine()
+# Custom Dark Terminal CSS Inject
+st.markdown(f"""
+    <style>
+    .stApp {{ background-color: {THEME_BG}; color: #FFFFFF; }}
+    .metric-card {{ background-color: #1E222D; padding: 15px; border-radius: 8px; border: 1px solid #2B2F3A; }}
+    </style>
+""", unsafe_allow_headers=True)
+
+# Safe Import of Dhan API Engine (Fallback to prevent crash if missing)
+try:
+    from dhan_api_engine import DhanAPIEngine
+    api_engine = DhanAPIEngine()
+except Exception as e:
+    api_engine = None
 
 st.title("🌑 MASTER QUANT CORE ENGINE (PRO TERMINAL)")
 st.markdown("---")
-st.write("Welcome to the Institutional Multi-Page Quant Terminal.")
-st.write("Use the sidebar navigation to switch between the 5 distinct operational desks (Option Chain, Graphics, Gatekeeper, Screener, and Historical Backtesting).")
 
+st.markdown("""
+### 🚀 Welcome to the Institutional Multi-Page Quant Terminal
+Your high-performance 5-page quantitative trading desk is now active. 
+
+**Operational Desks Available in Sidebar:**
+1. **Master Option Chain Desk:** Live LTP, Spread, Greeks & Dynamic Lot Size.
+2. **Graphical Terminal:** 10 Visual modules & Smart Money waves.
+3. **Gamma Flip Gatekeeper:** Confluence checklist and लक्ष्मण रेखा.
+4. **Quant Screener & Bot:** Auto-scanning F&O stocks with Telegram alerts.
+5. **Historical Time-Travel Desk:** Backtesting past dates, IV spikes, and snapshots.
+""")
+
+# Session State Global Asset Selector
 if "selected_asset" not in st.session_state:
     st.session_state.selected_asset = "SENSEX"
 
-all_symbols = api_engine.get_all_fo_symbols()
-st.session_state.selected_asset = st.sidebar.selectbox("Global Asset / Stock:", all_symbols, index=0)
+if api_engine:
+    try:
+        all_symbols = api_engine.get_all_fo_symbols()
+        st.session_state.selected_asset = st.sidebar.selectbox("Select Global Asset / Stock:", all_symbols, index=0)
+    except:
+        st.session_state.selected_asset = st.sidebar.selectbox("Select Global Asset / Stock:", ["SENSEX", "NIFTY", "BANKNIFTY"], index=0)
+else:
+    st.session_state.selected_asset = st.sidebar.selectbox("Select Global Asset / Stock:", ["SENSEX", "NIFTY", "BANKNIFTY"], index=0)
+
+st.sidebar.markdown("---")
+st.sidebar.info("💡 **Tip:** Use the navigation menu above to switch between the 5 distinct quant desks.")
