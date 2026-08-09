@@ -27,25 +27,10 @@ except ImportError:
             return pd.DataFrame()
         @staticmethod
         def fetch_expiries(c, a, s, seg):
-            return ["2026-08-13", "2026-08-20", "2026-08-27"]
+            return ["2026-08-11", "2026-08-18", "2026-08-25"]
         @staticmethod
         def fetch_live_option_chain(c, a, s, seg, exp, sym):
-            spot_dict = {
-                "NIFTY": 24570.65, "BANKNIFTY": 51200.00, "FINNIFTY": 23400.00,
-                "SENSEX": 78499.17, "RELIANCE": 2950.00, "TCS": 4120.00, "SBIN": 820.00
-            }
-            spot = spot_dict.get(sym.upper(), 24570.65)
-            step = 100 if sym.upper() == "SENSEX" else 50
-            strikes = np.arange(spot - (15 * step), spot + (16 * step), step)
-            recs = []
-            for st_val in strikes:
-                iv_val = 13.91 if sym.upper() == "SENSEX" else 14.25
-                recs.append({
-                    "Strike": int(st_val), "STRIKE": int(st_val),
-                    "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": iv_val, "CE_LTP": max(1.0, spot - st_val + 100),
-                    "PE_LTP": max(1.0, st_val - spot + 100), "PE_IV": iv_val, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 500000, "Raw_PE_OI": 500000
-                })
-            return pd.DataFrame(recs), spot
+            return pd.DataFrame(), 24570.65
 
 # Professional Styling Injection
 st.markdown("""
@@ -80,12 +65,11 @@ with col_c1:
 client_id = st.session_state.get("client_id", "")
 access_token = st.session_state.get("access_token", "")
 
-# Synchronized Master Dictionary with exact Dhan Market Lots
 master_dict = {
     "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 65},
     "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 15},
     "FINNIFTY": {"sec_id": 27, "seg": "IDX_I", "lot": 25},
-    "SENSEX": {"sec_id": 51, "seg": "BSE_IDX", "lot": 20},  # SENSEX Market Lot = 20 as per Dhan terminal
+    "SENSEX": {"sec_id": 51, "seg": "BSE_IDX", "lot": 20},
     "RELIANCE": {"sec_id": 2885, "seg": "NSE_EQ", "lot": 250},
     "TCS": {"sec_id": 11536, "seg": "NSE_EQ", "lot": 175},
     "SBIN": {"sec_id": 3045, "seg": "NSE_EQ", "lot": 750}
@@ -96,9 +80,9 @@ sec_id, seg, server_lot = cfg["sec_id"], cfg["seg"], cfg["lot"]
 try:
     expiries = InstitutionalDataEngine.fetch_expiries(client_id, access_token, sec_id, seg)
     if not expiries:
-        expiries = ["2026-08-13", "2026-08-20", "2026-08-27"]
+        expiries = ["2026-08-11", "2026-08-18"]
 except Exception:
-    expiries = ["2026-08-13", "2026-08-20", "2026-08-27"]
+    expiries = ["2026-08-11", "2026-08-18"]
 
 with col_c2:
     selected_expiry = st.selectbox("📅 Expiry", expiries, index=0, key=f"exp_{selected_symbol}")
@@ -136,14 +120,15 @@ except Exception:
 if chain_df is None or chain_df.empty:
     spot_val = 78499.17 if selected_symbol == "SENSEX" else 24570.65
     step = 100 if selected_symbol == "SENSEX" else 50
-    strikes = np.arange(spot_val - (15 * step), spot_val + (16 * step), step)
+    atm_st = round(spot_val / step) * step
+    strikes = np.arange(atm_st - (15 * step), atm_st + (16 * step), step)
     recs = []
     for st_val in strikes:
-        iv_val = 13.91 if selected_symbol == "SENSEX" else 14.25
+        iv_val = 13.91 if selected_symbol == "SENSEX" else 13.34
         recs.append({
             "Strike": int(st_val), "STRIKE": int(st_val),
-            "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": iv_val, "CE_LTP": max(1.0, spot_val - st_val + 100),
-            "PE_LTP": max(1.0, st_val - spot_val + 100), "PE_IV": iv_val, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 500000, "Raw_PE_OI": 500000
+            "CE_OI": 600000, "Raw_CE_OI": 600000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": iv_val, "CE_LTP": max(1.0, spot_val - st_val + 50),
+            "PE_LTP": max(1.0, st_val - spot_val + 50), "PE_IV": iv_val, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 450000, "Raw_PE_OI": 450000
         })
     chain_df = pd.DataFrame(recs)
     live_spot = spot_val
@@ -155,7 +140,7 @@ if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
 # Comprehensive Advanced Metrics Calculation Engine
 def calculate_advanced_metrics(df, spot, lot):
     r = 0.06 
-    T = 5 / 365.0  # 5 days to expiry as per Dhan snippet
+    T = 3 / 365.0
     
     ce_deltas, pe_deltas = [], []
     gammas, ce_thetas, pe_thetas, vegas = [], [], [], []
@@ -174,7 +159,7 @@ def calculate_advanced_metrics(df, spot, lot):
         c_vol = row.get('CE_Volume', 100000)
         p_vol = row.get('PE_Volume', 100000)
         
-        def_iv = 13.91 if selected_symbol == "SENSEX" else 14.25
+        def_iv = 13.91 if selected_symbol == "SENSEX" else 13.34
         c_iv = max(5.0, row.get('CE_IV', def_iv)) / 100.0
         p_iv = max(5.0, row.get('PE_IV', def_iv)) / 100.0
         sigma = (c_iv + p_iv) / 2.0
@@ -258,16 +243,16 @@ elif "±30" in strike_range_mode:
 else:
     disp_df = chain_df.copy()
 
-# Summary Metrics Bar
+# Summary Metrics Bar & Dynamic PCR Calculation
 disp_df['View_Dist'] = abs(disp_df['Strike'] - live_spot)
 atm_row = disp_df.loc[disp_df['View_Dist'].idxmin()]
-def_iv = 13.91 if selected_symbol == "SENSEX" else 14.25
+def_iv = 13.91 if selected_symbol == "SENSEX" else 13.34
 atm_iv = round((atm_row.get('CE_IV', def_iv) + atm_row.get('PE_IV', def_iv)) / 2.0, 2)
 disp_df = disp_df.drop(columns=['View_Dist'])
 
-f_ce_oi = disp_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in disp_df.columns else disp_df['CE_OI'].sum()
-f_pe_oi = disp_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in disp_df.columns else disp_df['PE_OI'].sum()
-pcr_val = 0.78 if selected_symbol == "SENSEX" else (round(f_pe_oi / f_ce_oi, 2) if f_ce_oi > 0 else 1.0)
+total_ce_oi = chain_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in chain_df.columns else chain_df['CE_OI'].sum()
+total_pe_oi = chain_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in chain_df.columns else chain_df['PE_OI'].sum()
+pcr_val = round(total_pe_oi / total_ce_oi, 2) if total_ce_oi > 0 else 0.73
 
 st.markdown("---")
 m1, m2, m3, m4 = st.columns(4)
