@@ -6,7 +6,6 @@ import numpy as np
 import scipy.stats as si
 import plotly.graph_objects as go
 
-# Bulletproof Dynamic Path Resolution
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
@@ -17,13 +16,18 @@ st.set_page_config(page_title="Institutional Option Chain Desk", page_icon="⚡"
 st.markdown("## ⚡ Advanced Institutional Quant Option Chain & Master Signal Desk")
 st.markdown("---")
 
-selected_symbol = st.session_state.get("global_symbol", "NIFTY")
+# --- EMBEDDED ASSET & EXPIRY SELECTOR AT THE TOP OF THE PAGE ---
+col_sel1, col_sel2, col_sel3 = st.columns([2, 2, 4])
+
+with col_sel1:
+    all_symbols = ["NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "RELIANCE", "TCS", "SBIN"]
+    current_symbol_idx = all_symbols.index(st.session_state.get("global_symbol", "NIFTY")) if st.session_state.get("global_symbol", "NIFTY") in all_symbols else 0
+    selected_symbol = st.selectbox("📌 Select Underlying Asset", all_symbols, index=current_symbol_idx, key="page_asset_selector")
+    st.session_state.global_symbol = selected_symbol
+
 client_id = st.session_state.get("client_id", "")
 access_token = st.session_state.get("access_token", "")
 
-st.sidebar.markdown(f"### 📌 Active Asset: `{selected_symbol}`")
-
-# Guaranteed Direct Mapping for Asset Config
 @st.cache_data(ttl=3600)
 def get_asset_master_config(symbol):
     master_dict = {
@@ -50,9 +54,10 @@ def get_asset_master_config(symbol):
 
 sec_id, seg, auto_lot_size = get_asset_master_config(selected_symbol)
 
-# Expiry & Range Controls in Sidebar
 expiries = InstitutionalDataEngine.fetch_expiries(client_id, access_token, sec_id, seg)
-selected_expiry = st.sidebar.selectbox("Expiry Date", expiries, key=f"exp_{selected_symbol}")
+
+with col_sel2:
+    selected_expiry = st.selectbox("📅 Expiry Date", expiries, key=f"exp_{selected_symbol}")
 
 strike_range_mode = st.sidebar.selectbox(
     "Option Chain Strike Range", 
@@ -64,7 +69,6 @@ strike_range_mode = st.sidebar.selectbox(
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎛️ Column View Manager")
 show_greeks = st.sidebar.checkbox("Show Advanced Greeks (Delta, Gamma, Theta, Vega)", value=True)
-show_advanced_stats = st.sidebar.checkbox("Show Open = High / Low & Concentration Markers", value=True)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ⚙️ Lot Size Control")
@@ -156,7 +160,6 @@ elif "±30" in strike_range_mode:
 else:
     disp_df = chain_df.copy()
 
-# ATM IV and PCR Calculation
 disp_df['View_Dist'] = abs(disp_df['Strike'] - live_spot)
 atm_row_view = disp_df.loc[disp_df['View_Dist'].idxmin()]
 c_iv_v = atm_row_view.get('CE_IV', 14.0)
@@ -201,15 +204,15 @@ with tab1:
     disp_df['CE Vol (M)'] = round(disp_df.get('CE_Volume', 0) / 1000000, 2)
     disp_df['PE Vol (M)'] = round(disp_df.get('PE_Volume', 0) / 1000000, 2)
 
-    # --- MACRO LEVEL COLUMN RE-POSITIONING (Mirror Layout) ---
-    # Call Side (Far to Near STRIKE): Vol -> OI -> OI Chg -> IV -> LTP Chg -> LTP (Sabse paas STRIKE ke)
-    # Put Side (Near STRIKE to Far): LTP (Sabse paas STRIKE ke) -> LTP Chg -> IV -> OI Chg -> OI -> Vol -> Volatility/Greeks
+    # --- MACRO LEVEL COLUMN RE-POSITIONING (Standard Mirror Layout) ---
+    # Call Side (Far to Near Strike): Vol -> OI -> OI Chg -> IV -> LTP Chg -> LTP (Sabse paas Strike ke)
+    # Put Side (Near Strike to Far): LTP (Sabse paas Strike ke) -> LTP Chg -> IV -> OI Chg -> OI -> Vol
     
     matrix_cols = ["CE Vol (M)", "CE OI (L)", "CE_Chg_OI", "CE_IV", "CE_%Chg", "CE_LTP", "CE Buildup"]
     if show_greeks:
         matrix_cols += ["CE Delta", "Gamma", "CE Theta", "CE Vega"]
         
-    # Center Column
+    # Center Column (Strike Price)
     matrix_cols += ["STRIKE"]
     
     if show_greeks:
@@ -219,8 +222,6 @@ with tab1:
 
     final_cols = [c for c in matrix_cols if c in disp_df.columns]
     matrix_df = disp_df[final_cols].copy()
-
-    # Safety check to prevent duplicate column errors
     matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
 
     st.markdown(f"### 📊 Master Option Chain Matrix ({strike_range_mode})")
