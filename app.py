@@ -1,27 +1,10 @@
 # app.py
-# Master 5-Page Dark Split Quant Core Engine UI (Clean & Error-Free)
+# Master 5-Page Dark Split Quant Core Engine UI (Ultra-Clean & Crash-Proof)
 
 import streamlit as st
 
 # Page Setup
 st.set_page_config(page_title="Dark Split Quant Terminal", layout="wide", initial_sidebar_state="expanded")
-
-# Custom Dark Terminal CSS Inject (Safe Single/Triple Quote Separation)
-dark_css = """
-<style>
-    .stApp {
-        background-color: #0E1117;
-        color: #FFFFFF;
-    }
-    .metric-card {
-        background-color: #1E222D;
-        padding: 15px;
-        border-radius: 8px;
-        border: 1px solid #2B2F3A;
-    }
-</style>
-"""
-st.markdown(dark_css, unsafe_allow_headers=True)
 
 # Safe Import of Dhan API Engine
 try:
