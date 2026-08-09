@@ -23,9 +23,8 @@ class InstitutionalDataEngine:
     @staticmethod
     @st.cache_data(ttl=30)
     def fetch_expiries(client_id, access_token, sec_id, seg):
-        """Dhan API se active aur valid expiry dates ki real list fetch karta hai."""
+        """Dhan API se active expiry dates fetch karta hai."""
         if not client_id or not access_token or not sec_id:
-            # Fallback upcoming Thursdays
             base_date = datetime.now()
             return [(base_date + timedelta(days=(3 - base_date.weekday() + 7 * i) % 7)).strftime("%Y-%m-%d") for i in range(1, 5)]
             
@@ -42,7 +41,6 @@ class InstitutionalDataEngine:
                 res = response.json()
                 data = res.get("data", [])
                 if isinstance(data, list) and len(data) > 0:
-                    # Clean and sort expiry dates properly
                     cleaned_dates = [str(d).split("T")[0] for d in data]
                     return sorted(list(set(cleaned_dates)))
         except Exception:
@@ -54,7 +52,11 @@ class InstitutionalDataEngine:
     @staticmethod
     @st.cache_data(ttl=10)
     def fetch_live_option_chain(client_id, access_token, sec_id, seg, exp, symbol):
-        """Dhan API se live option chain data laata hai."""
+        """Dhan API se live option chain data fetch karta hai, safety fallback ke sath."""
+        # Agar credentials nahi hain, toh seedha fallback simulation do (Blank nahi aayega)
+        if not client_id or not access_token:
+            return InstitutionalDataEngine._get_fallback_chain(symbol)
+
         url = "https://api.dhan.co/v2/optionchain"
         headers = {
             "access-token": str(access_token).strip(), 
@@ -114,12 +116,16 @@ class InstitutionalDataEngine:
         except Exception:
             pass
             
-        # Realistic Fallback Engine
+        # Agar API fail ho ya non-200 status aaye, toh fallback return karo
+        return InstitutionalDataEngine._get_fallback_chain(symbol)
+
+    @staticmethod
+    def _get_fallback_chain(symbol):
         spot_map = {
             "NIFTY": 24570.0, "BANKNIFTY": 51200.0, "FINNIFTY": 23100.0, 
             "SENSEX": 73200.0, "RELIANCE": 2950.0, "TCS": 4120.0, "SBIN": 820.0
         }
-        fallback_spot = spot_map.get(symbol.upper(), 2000.0)
+        fallback_spot = spot_map.get(symbol.upper(), 24570.0)
         step = 100 if symbol.upper() in ["BANKNIFTY", "SENSEX"] else (50 if symbol.upper() in ["NIFTY", "FINNIFTY"] else 20)
         atm = round(fallback_spot / step) * step
         strikes = np.arange(atm - (step * 15), atm + (step * 16), step)
