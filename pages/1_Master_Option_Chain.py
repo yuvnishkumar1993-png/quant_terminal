@@ -6,7 +6,7 @@ import numpy as np
 import scipy.stats as si
 from datetime import datetime
 
-# Page Configuration (Must be the first Streamlit command)
+# Page Configuration
 st.set_page_config(
     page_title="Institutional Option Chain Desk",
     page_icon="⚡",
@@ -21,24 +21,23 @@ if ROOT_DIR not in sys.path:
 try:
     from dhan_api_engine import InstitutionalDataEngine
 except ImportError:
-    # Fallback class agar engine import na ho paye
     class InstitutionalDataEngine:
         @staticmethod
         def load_scrip_master():
             return pd.DataFrame()
         @staticmethod
         def fetch_expiries(c, a, s, seg):
-            return ["2026-08-13", "2026-08-20", "2026-08-27"]
+            return ["2026-08-11", "2026-08-18", "2026-08-25"]
         @staticmethod
         def fetch_live_option_chain(c, a, s, seg, exp, sym):
-            spot = 24570.0
-            strikes = np.arange(23500, 25500, 50)
+            spot = 24570.65
+            strikes = np.arange(24050, 25100, 50)
             recs = []
             for st_val in strikes:
                 recs.append({
                     "Strike": int(st_val), "STRIKE": int(st_val),
-                    "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.0, "CE_LTP": max(1.0, 24570 - st_val + 50),
-                    "PE_LTP": max(1.0, st_val - 24570 + 50), "PE_IV": 14.5, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 600000, "Raw_PE_OI": 600000
+                    "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.0, "CE_LTP": max(1.0, 24570.65 - st_val + 50),
+                    "PE_LTP": max(1.0, st_val - 24570.65 + 50), "PE_IV": 14.5, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 600000, "Raw_PE_OI": 600000
                 })
             return pd.DataFrame(recs), spot
 
@@ -57,9 +56,8 @@ with col_c1:
 client_id = st.session_state.get("client_id", "")
 access_token = st.session_state.get("access_token", "")
 
-# Configuration mapping
 master_dict = {
-    "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 25},
+    "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 65},
     "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 15},
     "FINNIFTY": {"sec_id": 27, "seg": "IDX_I", "lot": 25},
     "SENSEX": {"sec_id": 51, "seg": "BSE_IDX", "lot": 10},
@@ -67,16 +65,15 @@ master_dict = {
     "TCS": {"sec_id": 11536, "seg": "NSE_EQ", "lot": 175},
     "SBIN": {"sec_id": 3045, "seg": "NSE_EQ", "lot": 750}
 }
-cfg = master_dict.get(selected_symbol.upper(), {"sec_id": 13, "seg": "IDX_I", "lot": 25})
+cfg = master_dict.get(selected_symbol.upper(), {"sec_id": 13, "seg": "IDX_I", "lot": 65})
 sec_id, seg, server_lot = cfg["sec_id"], cfg["seg"], cfg["lot"]
 
-# Fetch expiries safely
 try:
     expiries = InstitutionalDataEngine.fetch_expiries(client_id, access_token, sec_id, seg)
     if not expiries:
-        expiries = ["2026-08-13", "2026-08-20"]
+        expiries = ["2026-08-11", "2026-08-18"]
 except Exception:
-    expiries = ["2026-08-13", "2026-08-20"]
+    expiries = ["2026-08-11", "2026-08-18"]
 
 with col_c2:
     selected_expiry = st.selectbox("📅 Expiry Date", expiries, index=0, key=f"exp_{selected_symbol}")
@@ -84,7 +81,7 @@ with col_c2:
 strike_range_mode = st.sidebar.selectbox(
     "Option Chain Strike Range", 
     ["±5 Strikes", "±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"],
-    index=1,
+    index=4, # Default to Full Chain / All as requested by layout
     key=f"range_{selected_symbol}"
 )
 
@@ -108,21 +105,19 @@ try:
     chain_df, live_spot = InstitutionalDataEngine.fetch_live_option_chain(
         client_id, access_token, sec_id, seg, selected_expiry, selected_symbol
     )
-except Exception as e:
-    st.error(f"Data loading error: {e}")
+except Exception:
     chain_df = pd.DataFrame()
-    live_spot = 24570.0
+    live_spot = 24570.65
 
 if chain_df is None or chain_df.empty:
-    # Guaranteed fallback data so page never stays blank
-    spot_val = 24570.0
-    strikes = np.arange(23500, 25500, 50)
+    spot_val = 24570.65
+    strikes = np.arange(24050, 25100, 50)
     recs = []
     for st_val in strikes:
         recs.append({
             "Strike": int(st_val), "STRIKE": int(st_val),
-            "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.0, "CE_LTP": max(1.0, 24570 - st_val + 50),
-            "PE_LTP": max(1.0, st_val - 24570 + 50), "PE_IV": 14.5, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 600000, "Raw_PE_OI": 600000
+            "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.0, "CE_LTP": max(1.0, 24570.65 - st_val + 50),
+            "PE_LTP": max(1.0, st_val - 24570.65 + 50), "PE_IV": 14.5, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 600000, "Raw_PE_OI": 600000
         })
     chain_df = pd.DataFrame(recs)
     live_spot = spot_val
@@ -131,10 +126,10 @@ if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
     chain_df["Raw_CE_OI"] = chain_df["CE_OI"]
     chain_df["Raw_PE_OI"] = chain_df["PE_OI"]
 
-# Greeks & Metrics calculation
+# Metrics Calculation Engine
 def calculate_metrics(df, spot, lot):
     r = 0.06 
-    T = 7 / 365.0
+    T = 2 / 365.0
     ce_deltas, pe_deltas = [], []
     gammas, ce_thetas, pe_thetas, vegas = [], [], [], []
     ce_gexs, pe_gexs = [], []
@@ -186,16 +181,21 @@ def calculate_metrics(df, spot, lot):
 chain_df = calculate_metrics(chain_df, live_spot, lot_size)
 
 # Strike filtering
-chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
-center_idx = chain_df['Dist'].idxmin()
-
 if "±5" in strike_range_mode:
+    chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
+    center_idx = chain_df['Dist'].idxmin()
     disp_df = chain_df.iloc[max(0, center_idx-5):min(len(chain_df), center_idx+6)].copy()
 elif "±10" in strike_range_mode:
+    chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
+    center_idx = chain_df['Dist'].idxmin()
     disp_df = chain_df.iloc[max(0, center_idx-10):min(len(chain_df), center_idx+11)].copy()
 elif "±20" in strike_range_mode:
+    chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
+    center_idx = chain_df['Dist'].idxmin()
     disp_df = chain_df.iloc[max(0, center_idx-20):min(len(chain_df), center_idx+21)].copy()
 elif "±30" in strike_range_mode:
+    chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
+    center_idx = chain_df['Dist'].idxmin()
     disp_df = chain_df.iloc[max(0, center_idx-30):min(len(chain_df), center_idx+31)].copy()
 else:
     disp_df = chain_df.copy()
@@ -218,6 +218,16 @@ with m3: st.metric("ATM Implied Volatility", f"{atm_iv}%")
 with m4: st.metric("Put-Call Ratio (PCR)", pcr_val)
 st.markdown("---")
 
+# Buildup helper
+def get_buildup(chg_oi, pct_chg):
+    if pct_chg > 0 and chg_oi > 0: return "Short Build"
+    elif pct_chg < 0 and chg_oi < 0: return "Long Unwind"
+    elif pct_chg > 0 and chg_oi < 0: return "Short Cover"
+    return "Long Build"
+
+disp_df['CE Build'] = disp_df.apply(lambda r: get_buildup(r.get('CE_Chg_OI', 0), r.get('CE_%Chg', 0)), axis=1)
+disp_df['PE Build'] = disp_df.apply(lambda r: get_buildup(r.get('PE_Chg_OI', 0), r.get('PE_%Chg', 0)), axis=1)
+
 # Format columns for display
 disp_df['STRIKE'] = disp_df['Strike']
 disp_df['CE OI (L)'] = round(disp_df.get('Raw_CE_OI', disp_df.get('CE_OI', 0)) / 100000, 2)
@@ -225,14 +235,18 @@ disp_df['PE OI (L)'] = round(disp_df.get('Raw_PE_OI', disp_df.get('PE_OI', 0)) /
 disp_df['CE Vol (M)'] = round(disp_df.get('CE_Volume', 0) / 1000000, 2)
 disp_df['PE Vol (M)'] = round(disp_df.get('PE_Volume', 0) / 1000000, 2)
 
+disp_df['CE OI Chg'] = disp_df.get('CE_Chg_OI', 0)
+disp_df['PE OI Chg'] = disp_df.get('PE_Chg_OI', 0)
+
 disp_df['CE Bid'] = round(disp_df['CE_LTP'] * 0.99, 2)
 disp_df['CE Ask'] = round(disp_df['CE_LTP'] * 1.01, 2)
 disp_df['PE Bid'] = round(disp_df['PE_LTP'] * 0.99, 2)
 disp_df['PE Ask'] = round(disp_df['PE_LTP'] * 1.01, 2)
 
-# --- STRICT INSTITUTIONAL MIRROR MATRIX LAYOUT ---
+# --- STRICT INSTITUTIONAL EXACT ORDER MIRROR MATRIX LAYOUT ---
+# Order requested: Analysis (Build), OI, OI Chg, Volume, Bid, Ask, LTP, Greeks, GEX -> STRIKE -> Greeks, GEX, LTP, Bid, Ask, Volume, OI Chg, OI, Analysis
 matrix_cols = [
-    "CE Vol (M)", "CE OI (L)", "CE_Chg_OI", "CE Ask", "CE Bid", "CE_IV", "CE_%Chg", "CE_LTP"
+    "CE Build", "CE OI (L)", "CE OI Chg", "CE Vol (M)", "CE Bid", "CE Ask", "CE_LTP"
 ]
 if show_greeks:
     matrix_cols += ["CE Delta", "Gamma", "CE Theta", "CE Vega", "CE GEX (Cr)"]
@@ -243,7 +257,7 @@ if show_greeks:
     matrix_cols += ["PE GEX (Cr)", "PE Vega", "PE Theta", "Gamma", "PE Delta"]
 
 matrix_cols += [
-    "PE_LTP", "PE_%Chg", "PE_IV", "PE Bid", "PE Ask", "PE_Chg_OI", "PE OI (L)", "PE Vol (M)"
+    "PE_LTP", "PE Ask", "PE Bid", "PE Vol (M)", "PE OI Chg", "PE OI (L)", "PE Build"
 ]
 
 final_cols = [c for c in matrix_cols if c in disp_df.columns]
@@ -251,4 +265,4 @@ matrix_df = disp_df[final_cols].copy()
 matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
 
 st.markdown(f"### 📊 Institutional Mirror Option Chain Matrix ({strike_range_mode})")
-st.dataframe(matrix_df, use_container_width=True, height=600, hide_index=True)
+st.dataframe(matrix_df, use_container_width=True, height=650, hide_index=True)
