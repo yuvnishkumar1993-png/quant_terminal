@@ -42,12 +42,10 @@ st.sidebar.markdown(f"### 📌 Active Asset: `{selected_symbol}`")
 def get_scrip_details(symbol):
     df_scrip = InstitutionalDataEngine.load_scrip_master()
     if not df_scrip.empty:
-        # Standard filtering for NSE/BSE Index/Equities
         match = df_scrip[df_scrip['SEM_TRADING_SYMBOL'].str.upper() == symbol.upper()]
         if not match.empty:
             return int(match.iloc[0]['SEM_SMST_SECURITY_ID']), str(match.iloc[0]['SEM_SEGMENT'])
     
-    # Fallback IDs agar scrip master mein direct match na ho
     defaults = {
         "NIFTY": (13, "IDX_I"),
         "BANKNIFTY": (25, "IDX_I"),
@@ -100,7 +98,6 @@ chain_df, live_spot = InstitutionalDataEngine.fetch_live_option_chain(
     client_id, access_token, sec_id, seg, selected_expiry, selected_symbol
 )
 
-# Raw OI columns backup for calculations if not present
 if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
     chain_df["Raw_CE_OI"] = chain_df["CE_OI"]
     chain_df["Raw_PE_OI"] = chain_df["PE_OI"]
@@ -156,7 +153,6 @@ def calculate_institutional_greeks_and_gex(df, spot, lot):
 
 chain_df = calculate_institutional_greeks_and_gex(chain_df, live_spot, lot_size)
 
-# Strike Range Filtering Logic
 chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
 center_idx = chain_df['Dist'].idxmin()
 
@@ -208,7 +204,6 @@ with tab1:
 
     disp_df['OI Action'] = disp_df.apply(classify_buildup, axis=1)
 
-    # Clean display column mapping
     disp_df['CE OI (L)'] = round(disp_df.get('Raw_CE_OI', disp_df.get('CE_OI', 0)) / 100000, 2)
     disp_df['PE OI (L)'] = round(disp_df.get('Raw_PE_OI', disp_df.get('PE_OI', 0)) / 100000, 2)
     disp_df['STRIKE'] = disp_df['Strike']
