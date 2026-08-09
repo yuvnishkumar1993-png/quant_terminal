@@ -3,8 +3,6 @@ import sys
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
-import math
 import scipy.stats as si
 import plotly.graph_objects as go
 
@@ -12,6 +10,9 @@ import plotly.graph_objects as go
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
+
+# Centralized Data Engine Import
+from dhan_api_engine import InstitutionalDataEngine
 
 st.set_page_config(page_title="Institutional Option Chain Desk", page_icon="⚡", layout="wide")
 st.markdown("## ⚡ Institutional Option Chain & Gamma Flip Terminal")
@@ -29,12 +30,50 @@ DEFAULT_LOTS = {
     "SBIN": 750
 }
 
-# Global State से वैल्यू उठाएं
+# Global State se values uthayein
 selected_symbol = st.session_state.get("global_symbol", "NIFTY")
 client_id = st.session_state.get("client_id", "")
 access_token = st.session_state.get("access_token", "")
 
 st.sidebar.markdown(f"### 📌 Active Asset: `{selected_symbol}`")
+
+# Scrip Master load karke Security ID aur Segment nikalna
+@st.cache_data(ttl=3600)
+def get_scrip_details(symbol):
+    df_scrip = InstitutionalDataEngine.load_scrip_master()
+    if not df_scrip.empty:
+        # Standard filtering for NSE/BSE Index/Equities
+        match = df_scrip[df_scrip['SEM_TRADING_SYMBOL'].str.upper() == symbol.upper()]
+        if not match.empty:
+            return int(match.iloc[0]['SEM_SMST_SECURITY_ID']), str(match.iloc[0]['SEM_SEGMENT'])
+    
+    # Fallback IDs agar scrip master mein direct match na ho
+    defaults = {
+        "NIFTY": (13, "IDX_I"),
+        "BANKNIFTY": (25, "IDX_I"),
+        "FINNIFTY": (27, "IDX_I"),
+        "SENSEX": (51, "BSE_IDX"),
+        "RELIANCE": (2885, "NSE_EQ"),
+        "TCS": (11536, "NSE_EQ"),
+        "SBIN": (3045, "NSE_EQ")
+    }
+    return defaults.get(symbol, (13, "IDX_I"))
+
+sec_id, seg = get_scrip_details(selected_symbol)
+
+# Expiry dates fetch karna engine ke through
+expiries = InstitutionalDataEngine.fetch_expiries(client_id, access_token, sec_id, seg)
+if not expiries:
+    expiries = ["2026-08-13", "2026-08-20", "2026-08-27"]
+
+selected_expiry = st.sidebar.selectbox("Expiry Date", expiries, key="oc_exp_master")
+
+strike_range_mode = st.sidebar.radio(
+    "Option Chain Strike Range", 
+    ["±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"],
+    index=1,
+    key="strike_range_gex_master"
+)
 
 # Foolproof Lot Size Control
 default_lot = DEFAULT_LOTS.get(selected_symbol, 50)
@@ -47,17 +86,7 @@ lot_size = st.sidebar.number_input(
     value=int(default_lot), 
     step=1,
     key=f"lot_override_{selected_symbol}",
-    help="लॉट साइज़ पूरी तरह आपके नियंत्रण में है।"
-)
-
-expiries = ["2026-08-13", "2026-08-20", "2026-08-27"]
-selected_expiry = st.sidebar.selectbox("Expiry Date", expiries, key="oc_exp_master")
-
-strike_range_mode = st.sidebar.radio(
-    "Option Chain Strike Range", 
-    ["±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"],
-    index=1,
-    key="strike_range_gex_master"
+    help="लॉट साइज़ पूरी तरह आपके नियंत्रण में है।"
 )
 
 tab1, tab2, tab3 = st.tabs([
@@ -66,55 +95,15 @@ tab1, tab2, tab3 = st.tabs([
     "🚀 IV Smile, Sigma Bands & Strategy Desk"
 ])
 
-@st.cache_data(ttl=15)
-def fetch_institutional_option_chain(c_id, token, exp, sym):
-    default_spots = {"NIFTY": 24500.0, "BANKNIFTY": 51200.0, "FINNIFTY": 23100.0, "SENSEX": 73200.0, "RELIANCE": 2950.0, "TCS": 4120.0, "SBIN": 820.0}
-    fallback_spot = default_spots.get(sym, 20000.0)
-    
-    # लॉजिकल मार्केट डेटा जनरेशन (स्पॉट के पास सटीक प्रीमियम)
-    step = 100 if sym in ["BANKNIFTY", "SENSEX"] else (50 if sym in ["NIFTY", "FINNIFTY"] else 20)
-    atm = round(fallback_spot / step) * step
-    strikes_arr = [atm + (i * step) for i in range(-25, 26)]
-    
-    mock_recs = []
-    np.random.seed(42)
-    for s in strikes_arr:
-        c_intrinsic = max(0.0, fallback_spot - s)
-        p_intrinsic = max(0.0, s - fallback_spot)
-        distance_pts = abs(s - fallback_spot)
-        time_value = max(10.0, 150.0 - (distance_pts * 0.15))
-        
-        c_ltp = round(c_intrinsic + time_value if c_intrinsic > 0 else time_value, 2)
-        p_ltp = round(p_intrinsic + time_value if p_intrinsic > 0 else time_value, 2)
-        
-        c_oi = int(max(50000, 300000 - (distance_pts * 1000)))
-        p_oi = int(max(50000, 300000 - (distance_pts * 1000)))
-        
-        c_iv_val = round(12.0 + (distance_pts / fallback_spot) * 20, 2)
-        p_iv_val = round(12.5 + (distance_pts / fallback_spot) * 20, 2)
-        
-        mock_recs.append({
-            "CE Spread %": round(np.random.uniform(0.1, 0.8), 2),
-            "CE LTP": c_ltp, 
-            "CE %Chg": round(np.random.uniform(-8, 12), 2), 
-            "CE IV": c_iv_val, 
-            "CE Vol": int(c_oi * 1.5), 
-            "CE Chg OI": int(np.random.randint(-5000, 8000)), 
-            "CE OI (L)": round(c_oi/100000, 2),
-            "STRIKE": int(s), 
-            "PE OI (L)": round(p_oi/100000, 2), 
-            "PE Chg OI": int(np.random.randint(-5000, 8000)), 
-            "PE Vol": int(p_oi * 1.5), 
-            "PE %Chg": round(np.random.uniform(-8, 12), 2), 
-            "PE LTP": p_ltp, 
-            "PE IV": p_iv_val, 
-            "PE Spread %": round(np.random.uniform(0.1, 0.8), 2),
-            "Raw_CE_OI": c_oi,
-            "Raw_PE_OI": p_oi
-        })
-    return pd.DataFrame(mock_recs), fallback_spot
+# Real-time Option Chain fetch using InstitutionalDataEngine
+chain_df, live_spot = InstitutionalDataEngine.fetch_live_option_chain(
+    client_id, access_token, sec_id, seg, selected_expiry, selected_symbol
+)
 
-chain_df, live_spot = fetch_institutional_option_chain(client_id, access_token, selected_expiry, selected_symbol)
+# Raw OI columns backup for calculations if not present
+if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
+    chain_df["Raw_CE_OI"] = chain_df["CE_OI"]
+    chain_df["Raw_PE_OI"] = chain_df["PE_OI"]
 
 def calculate_institutional_greeks_and_gex(df, spot, lot):
     r = 0.06 
@@ -125,27 +114,27 @@ def calculate_institutional_greeks_and_gex(df, spot, lot):
     net_gexs = []
     
     for _, row in df.iterrows():
-        K = row['STRIKE']
-        call_oi = row['Raw_CE_OI']
-        put_oi = row['Raw_PE_OI']
+        K = row['Strike']
+        call_oi = row.get('Raw_CE_OI', row.get('CE_OI', 100000))
+        put_oi = row.get('Raw_PE_OI', row.get('PE_OI', 100000))
         
-        c_iv = row.get('CE IV', 12.0) / 100.0
+        c_iv = row.get('CE_IV', row.get('CE IV', 16.0)) / 100.0
         sigma = max(c_iv, 0.01)
         
-        d1 = (np.log(spot / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-        d2 = d1 - sigma * np.sqrt(T)
-        
-        cdf_d1 = si.norm.cdf(d1)
-        pdf_d1 = si.norm.pdf(d1)
-        
-        c_delta = cdf_d1
-        p_delta = cdf_d1 - 1.0
-        gamma = pdf_d1 / (spot * sigma * np.sqrt(T))
-        
-        c_theta = (- (spot * pdf_d1 * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * si.norm.cdf(d2)) / 365.0
-        p_theta = (- (spot * pdf_d1 * sigma) / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * si.norm.cdf(-d2)) / 365.0
-        vega = (spot * np.sqrt(T) * pdf_d1) / 100.0
-        
+        try:
+            d1 = (np.log(spot / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+            d2 = d1 - sigma * np.sqrt(T)
+            cdf_d1 = si.norm.cdf(d1)
+            pdf_d1 = si.norm.pdf(d1)
+            c_delta = cdf_d1
+            p_delta = cdf_d1 - 1.0
+            gamma = pdf_d1 / (spot * sigma * np.sqrt(T))
+            c_theta = (- (spot * pdf_d1 * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * si.norm.cdf(d2)) / 365.0
+            p_theta = (- (spot * pdf_d1 * sigma) / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * si.norm.cdf(-d2)) / 365.0
+            vega = (spot * np.sqrt(T) * pdf_d1) / 100.0
+        except Exception:
+            c_delta, p_delta, gamma, c_theta, p_theta, vega = 0.5, -0.5, 0.001, -5.0, -5.0, 10.0
+
         net_gex = (call_oi - put_oi) * lot * (spot ** 2) * gamma / 1000000000.0
         
         ce_deltas.append(round(c_delta, 2))
@@ -168,7 +157,7 @@ def calculate_institutional_greeks_and_gex(df, spot, lot):
 chain_df = calculate_institutional_greeks_and_gex(chain_df, live_spot, lot_size)
 
 # Strike Range Filtering Logic
-chain_df['Dist'] = abs(chain_df['STRIKE'] - live_spot)
+chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
 center_idx = chain_df['Dist'].idxmin()
 
 if "±10" in strike_range_mode:
@@ -180,15 +169,15 @@ elif "±30" in strike_range_mode:
 else:
     disp_df = chain_df.copy()
 
-disp_df['View_Dist'] = abs(disp_df['STRIKE'] - live_spot)
+disp_df['View_Dist'] = abs(disp_df['Strike'] - live_spot)
 atm_row_view = disp_df.loc[disp_df['View_Dist'].idxmin()]
-c_iv_v = atm_row_view['CE IV']
-p_iv_v = atm_row_view['PE IV']
+c_iv_v = atm_row_view.get('CE_IV', atm_row_view.get('CE IV', 16.0))
+p_iv_v = atm_row_view.get('PE_IV', atm_row_view.get('PE IV', 16.0))
 dynamic_atm_iv = round((c_iv_v + p_iv_v) / 2.0, 2)
 disp_df = disp_df.drop(columns=['View_Dist'])
 
-filtered_ce_oi_sum = disp_df['Raw_CE_OI'].sum()
-filtered_pe_oi_sum = disp_df['Raw_PE_OI'].sum()
+filtered_ce_oi_sum = disp_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in disp_df.columns else disp_df['CE_OI'].sum()
+filtered_pe_oi_sum = disp_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in disp_df.columns else disp_df['PE_OI'].sum()
 dynamic_pcr = round(filtered_pe_oi_sum / filtered_ce_oi_sum, 2) if filtered_ce_oi_sum > 0 else 1.0
 
 flip_strike = live_spot
@@ -196,8 +185,8 @@ if not chain_df.empty:
     chain_df['Cum_GEX'] = chain_df['Net_GEX'].cumsum()
     sign_changes = np.where(np.diff(np.sign(chain_df['Cum_GEX'].values)))[0]
     if len(sign_changes) > 0:
-        closest_change = min(sign_changes, key=lambda idx: abs(chain_df.loc[idx, 'STRIKE'] - live_spot))
-        flip_strike = chain_df.loc[closest_change, 'STRIKE']
+        closest_change = min(sign_changes, key=lambda idx: abs(chain_df.loc[idx, 'Strike'] - live_spot))
+        flip_strike = chain_df.loc[closest_change, 'Strike']
 
 with tab1:
     col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns(5)
@@ -210,17 +199,24 @@ with tab1:
     st.markdown("---")
 
     def classify_buildup(row):
-        if row['CE %Chg'] > 0 and row['CE Chg OI'] > 0: return "Short Buildup"
-        elif row['CE %Chg'] < 0 and row['CE Chg OI'] < 0: return "Long Unwinding"
-        elif row['CE %Chg'] > 0 and row['CE Chg OI'] < 0: return "Short Covering"
+        ce_chg = row.get('CE_Chg_OI', row.get('CE Chg OI', 0))
+        ce_pct = row.get('CE_%Chg', row.get('CE %Chg', 0))
+        if ce_pct > 0 and ce_chg > 0: return "Short Buildup"
+        elif ce_pct < 0 and ce_chg < 0: return "Long Unwinding"
+        elif ce_pct > 0 and ce_chg < 0: return "Short Covering"
         return "Long Buildup"
 
     disp_df['OI Action'] = disp_df.apply(classify_buildup, axis=1)
 
+    # Clean display column mapping
+    disp_df['CE OI (L)'] = round(disp_df.get('Raw_CE_OI', disp_df.get('CE_OI', 0)) / 100000, 2)
+    disp_df['PE OI (L)'] = round(disp_df.get('Raw_PE_OI', disp_df.get('PE_OI', 0)) / 100000, 2)
+    disp_df['STRIKE'] = disp_df['Strike']
+
     cols_order = [
-        "CE Spread %", "CE LTP", "CE %Chg", "CE IV", "CE Delta", "CE Theta", "CE Vol", "CE Chg OI", "CE OI (L)",
+        "CE_LTP", "CE_IV", "CE Delta", "CE Theta", "CE_Volume", "CE_Chg_OI", "CE OI (L)",
         "STRIKE", "OI Action",
-        "Gamma", "Vega", "PE Theta", "PE Delta", "PE IV", "PE %Chg", "PE LTP", "PE Spread %", "PE Vol", "PE Chg OI", "PE OI (L)"
+        "Gamma", "Vega", "PE Theta", "PE Delta", "PE_IV", "PE_LTP", "PE_Volume", "PE_Chg_OI", "PE OI (L)"
     ]
     
     final_oc_cols = [c for c in cols_order if c in disp_df.columns]
@@ -252,14 +248,16 @@ with tab1:
 with tab2:
     st.markdown(f"### Max Pain, Settlement & Gamma Exposure (GEX) Profile ({selected_symbol})")
     
-    strikes_list = chain_df['STRIKE'].values
+    strikes_list = chain_df['Strike'].values
     pain_dict = {}
     for expiry_price in strikes_list:
         total_pain = 0
         for _, row in chain_df.iterrows():
-            k = row['STRIKE']
-            if expiry_price > k: total_pain += (expiry_price - k) * row['Raw_CE_OI']
-            if expiry_price < k: total_pain += (k - expiry_price) * row['Raw_PE_OI']
+            k = row['Strike']
+            c_oi = row.get('Raw_CE_OI', row.get('CE_OI', 0))
+            p_oi = row.get('Raw_PE_OI', row.get('PE_OI', 0))
+            if expiry_price > k: total_pain += (expiry_price - k) * c_oi
+            if expiry_price < k: total_pain += (k - expiry_price) * p_oi
         pain_dict[expiry_price] = total_pain
         
     max_pain = min(pain_dict, key=pain_dict.get) if pain_dict else strikes_list[len(strikes_list)//2]
@@ -299,8 +297,11 @@ with tab3:
     
     fig_iv = go.Figure()
     iv_plot_df = disp_df.copy()
-    fig_iv.add_trace(go.Scatter(x=iv_plot_df['STRIKE'].astype(str), y=iv_plot_df['CE IV'], mode='lines+markers', name="Call IV (Skew)", line=dict(color='#d73a49', width=2.5)))
-    fig_iv.add_trace(go.Scatter(x=iv_plot_df['STRIKE'].astype(str), y=iv_plot_df['PE IV'], mode='lines+markers', name="Put IV (Smile)", line=dict(color='#28a745', width=2.5)))
+    ce_iv_col = 'CE_IV' if 'CE_IV' in iv_plot_df.columns else 'CE IV'
+    pe_iv_col = 'PE_IV' if 'PE_IV' in iv_plot_df.columns else 'PE IV'
+
+    fig_iv.add_trace(go.Scatter(x=iv_plot_df['Strike'].astype(str), y=iv_plot_df[ce_iv_col], mode='lines+markers', name="Call IV (Skew)", line=dict(color='#d73a49', width=2.5)))
+    fig_iv.add_trace(go.Scatter(x=iv_plot_df['Strike'].astype(str), y=iv_plot_df[pe_iv_col], mode='lines+markers', name="Put IV (Smile)", line=dict(color='#28a745', width=2.5)))
     fig_iv.update_layout(
         template='plotly_white',
         plot_bgcolor='#ffffff',
