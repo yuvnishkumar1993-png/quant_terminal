@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import scipy.stats as si
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_DIR not in sys.path:
@@ -33,7 +34,6 @@ access_token = st.session_state.get("access_token", "")
 def get_server_scrip_and_lot(symbol):
     df_scrip = InstitutionalDataEngine.load_scrip_master()
     if not df_scrip.empty:
-        # Match exact symbol in segment (Index or Equity)
         match = df_scrip[df_scrip['SEM_TRADING_SYMBOL'].str.upper() == symbol.upper()]
         if not match.empty:
             row = match.iloc[0]
@@ -42,7 +42,6 @@ def get_server_scrip_and_lot(symbol):
             lot = int(row.get('SEM_LOT_SIZE', 25))
             return sec_id, seg, lot
             
-    # Fallback Dictionary Mapping
     master_dict = {
         "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 25},
         "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 15},
@@ -75,7 +74,6 @@ show_greeks = st.sidebar.checkbox("Show Advanced Greeks (Delta, Gamma, Theta, Ve
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ⚙️ Lot Size Control")
-# Server se fetch kiya hua lot size automatically default value mein set rahega
 lot_size = st.sidebar.number_input(
     "Verify / Override Lot Size (Server Synced)", 
     min_value=1, 
@@ -104,7 +102,10 @@ if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
 # Accurate Quantitative Calculation Engine (Greeks & GEX)
 def calculate_institutional_greeks_and_gex(df, spot, lot):
     r = 0.06 
-    T = max(1.0, (datetime.strptime(selected_expiry, "%Y-%m-%d") - datetime.now()).days) / 365.0
+    try:
+        T = max(1.0, (datetime.strptime(selected_expiry, "%Y-%m-%d") - datetime.now()).days) / 365.0
+    except Exception:
+        T = 4 / 365.0
     
     ce_deltas, pe_deltas = [], []
     gammas, ce_thetas, pe_thetas, vegas = [], [], [], []
@@ -115,7 +116,6 @@ def calculate_institutional_greeks_and_gex(df, spot, lot):
         call_oi = row.get('Raw_CE_OI', row.get('CE_OI', 100000))
         put_oi = row.get('Raw_PE_OI', row.get('PE_OI', 100000))
         
-        # Safe IV handling
         c_iv = max(5.0, row.get('CE_IV', 14.0)) / 100.0
         p_iv = max(5.0, row.get('PE_IV', 14.5)) / 100.0
         sigma = (c_iv + p_iv) / 2.0
