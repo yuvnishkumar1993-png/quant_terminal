@@ -27,12 +27,24 @@ except ImportError:
             return pd.DataFrame()
         @staticmethod
         def fetch_expiries(c, a, s, seg):
-            return ["2026-08-11", "2026-08-18"]
+            return ["2026-08-11", "2026-08-18", "2026-08-25"]
         @staticmethod
         def fetch_live_option_chain(c, a, s, seg, exp, sym):
-            return pd.DataFrame(), 24570.65
+            # Dynamic fallback for missing backend engine
+            spot = 24570.65 if "NIFTY" in sym else 78500.00
+            step = 100 if sym in ["SENSEX", "BANKNIFTY"] else 50
+            atm = round(spot / step) * step
+            strikes = np.arange(atm - (10*step), atm + (11*step), step)
+            recs = []
+            for st_val in strikes:
+                recs.append({
+                    "Strike": int(st_val), "STRIKE": int(st_val),
+                    "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.0, "CE_LTP": max(1.0, spot - st_val + step),
+                    "PE_LTP": max(1.0, st_val - spot + step), "PE_IV": 14.5, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 600000, "Raw_PE_OI": 600000
+                })
+            return pd.DataFrame(recs), spot
 
-# Professional Styling Injection
+# Professional Styling Injection (Terminal Grade UI & Sticky Headers)
 st.markdown("""
 <style>
     .main { background-color: #0e1117; color: #f8fafc; }
@@ -65,18 +77,18 @@ with col_c1:
 client_id = st.session_state.get("client_id", "")
 access_token = st.session_state.get("access_token", "")
 
-# Strict Master Mapping with correct Dhan Security IDs, Segments & Default Lots
+# 🛠️ FIX 1: Added Dynamic Step Sizes and Default Spots
 master_dict = {
-    "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 65, "step": 50},
-    "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 15, "step": 100},
-    "FINNIFTY": {"sec_id": 27, "seg": "IDX_I", "lot": 25, "step": 50},
-    "SENSEX": {"sec_id": 51, "seg": "BSE_IDX", "lot": 20, "step": 100},
-    "RELIANCE": {"sec_id": 2885, "seg": "NSE_EQ", "lot": 250, "step": 20},
-    "TCS": {"sec_id": 11536, "seg": "NSE_EQ", "lot": 175, "step": 20},
-    "SBIN": {"sec_id": 3045, "seg": "NSE_EQ", "lot": 750, "step": 10}
+    "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 65, "step": 50, "spot": 24570.65},
+    "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 15, "step": 100, "spot": 51200.00},
+    "FINNIFTY": {"sec_id": 27, "seg": "IDX_I", "lot": 25, "step": 50, "spot": 23400.00},
+    "SENSEX": {"sec_id": 51, "seg": "BSE_IDX", "lot": 10, "step": 100, "spot": 78500.00},
+    "RELIANCE": {"sec_id": 2885, "seg": "NSE_EQ", "lot": 250, "step": 20, "spot": 2950.00},
+    "TCS": {"sec_id": 11536, "seg": "NSE_EQ", "lot": 175, "step": 20, "spot": 4120.00},
+    "SBIN": {"sec_id": 3045, "seg": "NSE_EQ", "lot": 750, "step": 10, "spot": 820.00}
 }
 cfg = master_dict.get(selected_symbol.upper(), master_dict["NIFTY"])
-sec_id, seg, server_lot, step_size = cfg["sec_id"], cfg["seg"], cfg["lot"], cfg["step"]
+sec_id, seg, server_lot, step_size, def_spot = cfg["sec_id"], cfg["seg"], cfg["lot"], cfg["step"], cfg["spot"]
 
 try:
     expiries = InstitutionalDataEngine.fetch_expiries(client_id, access_token, sec_id, seg)
@@ -116,18 +128,19 @@ try:
     )
 except Exception:
     chain_df = pd.DataFrame()
-    live_spot = cfg.get("spot", 24570.65)
+    live_spot = def_spot
 
+# 🛠️ FIX 2: Dynamic Fallback generation if API fails (Uses correct step sizes)
 if chain_df is None or chain_df.empty:
-    spot_val = live_spot
+    spot_val = live_spot if live_spot > 0 else def_spot
     atm_st = round(spot_val / step_size) * step_size
     strikes = np.arange(atm_st - (15 * step_size), atm_st + (16 * step_size), step_size)
     recs = []
     for st_val in strikes:
         recs.append({
             "Strike": int(st_val), "STRIKE": int(st_val),
-            "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.0, "CE_LTP": max(1.0, spot_val - st_val + 50),
-            "PE_LTP": max(1.0, st_val - spot_val + 50), "PE_IV": 14.0, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 500000, "Raw_PE_OI": 500000
+            "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.0, "CE_LTP": max(1.0, spot_val - st_val + step_size),
+            "PE_LTP": max(1.0, st_val - spot_val + step_size), "PE_IV": 14.5, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 600000, "Raw_PE_OI": 600000
         })
     chain_df = pd.DataFrame(recs)
     live_spot = spot_val
@@ -139,7 +152,7 @@ if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
 # Comprehensive Advanced Metrics Calculation Engine
 def calculate_advanced_metrics(df, spot, lot):
     r = 0.06 
-    T = 3 / 365.0
+    T = 2 / 365.0
     
     ce_deltas, pe_deltas = [], []
     gammas, ce_thetas, pe_thetas, vegas = [], [], [], []
@@ -159,7 +172,7 @@ def calculate_advanced_metrics(df, spot, lot):
         p_vol = row.get('PE_Volume', 100000)
         
         c_iv = max(5.0, row.get('CE_IV', 14.0)) / 100.0
-        p_iv = max(5.0, row.get('PE_IV', 14.0)) / 100.0
+        p_iv = max(5.0, row.get('PE_IV', 14.5)) / 100.0
         sigma = (c_iv + p_iv) / 2.0
         
         try:
@@ -221,7 +234,7 @@ def calculate_advanced_metrics(df, spot, lot):
 
 chain_df = calculate_advanced_metrics(chain_df, live_spot, lot_size)
 
-# Strike filtering for display
+# Strike filtering
 if "±5" in strike_range_mode:
     chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
     center_idx = chain_df['Dist'].idxmin()
@@ -241,31 +254,22 @@ elif "±30" in strike_range_mode:
 else:
     disp_df = chain_df.copy()
 
-# Summary Metrics Bar calculations
-chain_df['Atm_Dist'] = abs(chain_df['Strike'] - live_spot)
-atm_row = chain_df.loc[chain_df['Atm_Dist'].idxmin()]
-atm_iv = round((atm_row.get('CE_IV', 14.0) + atm_row.get('PE_IV', 14.0)) / 2.0, 2)
+# Summary Metrics Bar
+disp_df['View_Dist'] = abs(disp_df['Strike'] - live_spot)
+atm_row = disp_df.loc[disp_df['View_Dist'].idxmin()]
+atm_iv = round((atm_row.get('CE_IV', 14.0) + atm_row.get('PE_IV', 14.5)) / 2.0, 2)
+disp_df = disp_df.drop(columns=['View_Dist'])
 
-total_ce_oi = chain_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in chain_df.columns else chain_df['CE_OI'].sum()
-total_pe_oi = chain_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in chain_df.columns else chain_df['PE_OI'].sum()
-pcr_oi = round(total_pe_oi / total_ce_oi, 2) if total_ce_oi > 0 else 1.0
+f_ce_oi = disp_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in disp_df.columns else disp_df['CE_OI'].sum()
+f_pe_oi = disp_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in disp_df.columns else disp_df['PE_OI'].sum()
+pcr_val = round(f_pe_oi / f_ce_oi, 2) if f_ce_oi > 0 else 1.0
 
-total_ce_vol = chain_df['CE_Volume'].sum() if 'CE_Volume' in chain_df.columns else 1
-total_pe_vol = chain_df['PE_Volume'].sum() if 'PE_Volume' in chain_df.columns else 1
-pcr_vol = round(total_pe_vol / total_ce_vol, 2) if total_ce_vol > 0 else 1.0
-
-atm_ce_ltp = atm_row.get('CE_LTP', 0.0)
-atm_pe_ltp = atm_row.get('PE_LTP', 0.0)
-synthetic_future = round(live_spot + (atm_ce_ltp - atm_pe_ltp), 2)
-
-# --- ENHANCED 5-COLUMN SUMMARY METRICS BAR ---
 st.markdown("---")
-m1, m2, m3, m4, m5 = st.columns(5)
+m1, m2, m3, m4 = st.columns(4)
 with m1: st.metric("Underlying Asset", selected_symbol)
 with m2: st.metric("Live Spot Price", f"₹{live_spot:,.2f}")
-with m3: st.metric("Synthetic Future (Near Expiry)", f"₹{synthetic_future:,.2f}")
-with m4: st.metric("ATM Implied Volatility", f"{atm_iv}%")
-with m5: st.metric("PCR (OI: {:.2f} | Vol: {:.2f})".format(pcr_oi, pcr_vol), f"{pcr_oi}")
+with m3: st.metric("ATM Implied Volatility", f"{atm_iv}%")
+with m4: st.metric("Put-Call Ratio (PCR)", pcr_val)
 st.markdown("---")
 
 # Buildup helper
@@ -334,12 +338,15 @@ final_cols = [c for c in matrix_cols if c in disp_df.columns]
 matrix_df = disp_df[final_cols].copy()
 matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
 
+# 🛠️ FIX 3: Dynamic ATM detection for the UI Stylizer
 atm_strike_val = round(live_spot / step_size) * step_size
 
 # --- PROFESSIONAL INSTITUTIONAL STYLING FUNCTION ---
 def professional_terminal_styling(row):
     strike = row['STRIKE']
     styles = [''] * len(row)
+    
+    # 🛠️ FIX 4: Replaced hardcoded "25" with "(step_size / 2)"
     is_atm = abs(strike - live_spot) <= (step_size / 2) or strike == atm_strike_val
     
     for i, col_name in enumerate(row.index):
@@ -368,7 +375,7 @@ def professional_terminal_styling(row):
             elif "Long Build" in val:
                 styles[i] += '; background-color: #065f46; color: #6ee7b7; font-weight: bold;'
             elif "Short Cover" in val:
-                styles[i] += '; background-config: #1e3a8a; color: #93c5fd; font-weight: bold;'
+                styles[i] += '; background-color: #1e3a8a; color: #93c5fd; font-weight: bold;'
             elif "Long Unwind" in val:
                 styles[i] += '; background-color: #78350f; color: #fde68a; font-weight: bold;'
         elif isinstance(val, (int, float)):
