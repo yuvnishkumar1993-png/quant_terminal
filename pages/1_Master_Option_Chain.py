@@ -6,7 +6,9 @@ import numpy as np
 import scipy.stats as si
 from datetime import datetime
 
-# Page Configuration
+# ==========================================
+# 1. Page Configuration & Setup
+# ==========================================
 st.set_page_config(
     page_title="Institutional Quant Terminal Pro",
     page_icon="⚡",
@@ -18,45 +20,29 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
 
+# API Engine Loading (Fallback for testing if not connected)
 try:
     from dhan_api_engine import InstitutionalDataEngine
 except ImportError:
     class InstitutionalDataEngine:
         @staticmethod
-        def load_scrip_master():
-            return pd.DataFrame()
+        def load_scrip_master(): return pd.DataFrame()
         @staticmethod
-        def fetch_expiries(c, a, s, seg):
-            return ["2026-08-11", "2026-08-18", "2026-08-25"]
+        def fetch_expiries(c, a, s, seg): return ["2026-08-11", "2026-08-18"]
         @staticmethod
-        def fetch_live_option_chain(c, a, s, seg, exp, sym):
-            # Dynamic fallback for missing backend engine
-            spot = 24570.65 if "NIFTY" in sym else 78500.00
-            step = 100 if sym in ["SENSEX", "BANKNIFTY"] else 50
-            atm = round(spot / step) * step
-            strikes = np.arange(atm - (10*step), atm + (11*step), step)
-            recs = []
-            for st_val in strikes:
-                recs.append({
-                    "Strike": int(st_val), "STRIKE": int(st_val),
-                    "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.0, "CE_LTP": max(1.0, spot - st_val + step),
-                    "PE_LTP": max(1.0, st_val - spot + step), "PE_IV": 14.5, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 600000, "Raw_PE_OI": 600000
-                })
-            return pd.DataFrame(recs), spot
+        def fetch_live_option_chain(c, a, s, seg, exp, sym): return pd.DataFrame(), 24570.65
+        @staticmethod
+        def get_lot_size(sym): raise AttributeError
 
-# Professional Styling Injection (Terminal Grade UI & Sticky Headers)
+# Professional Styling
 st.markdown("""
 <style>
     .main { background-color: #0e1117; color: #f8fafc; }
     div[data-testid="stHorizontalBlock"] > div { align-items: center; }
     [data-testid="stDataFrame"] { border: 1px solid #30363d; border-radius: 8px; }
     [data-testid="stDataFrame"] th {
-        position: sticky !important;
-        top: 0 !important;
-        background-color: #161b22 !important;
-        color: #f0f6fc !important;
-        font-weight: 600 !important;
-        z-index: 999 !important;
+        position: sticky !important; top: 0 !important; background-color: #161b22 !important;
+        color: #f0f6fc !important; font-weight: 600 !important; z-index: 999 !important;
         border-bottom: 2px solid #30363d !important;
     }
 </style>
@@ -65,7 +51,9 @@ st.markdown("""
 st.markdown("## ⚡ Institutional Quant Terminal Pro")
 st.markdown("---")
 
-# --- COMPACT INLINE CONTROLS & TICKER BAR ---
+# ==========================================
+# 2. UI Controls & Auto-Lot Selection
+# ==========================================
 col_c1, col_c2, col_c3, col_c4, col_c5 = st.columns([1.5, 1.5, 2, 2, 1.5])
 
 with col_c1:
@@ -77,23 +65,25 @@ with col_c1:
 client_id = st.session_state.get("client_id", "")
 access_token = st.session_state.get("access_token", "")
 
-# 🛠️ FIX 1: Added Dynamic Step Sizes and Default Spots
+# 🎯 MASTER FIX: User Specific Lot Sizes (Nifty 65, BankNifty 30, Sensex 20)
 master_dict = {
     "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 65, "step": 50, "spot": 24570.65},
-    "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 15, "step": 100, "spot": 51200.00},
-    "FINNIFTY": {"sec_id": 27, "seg": "IDX_I", "lot": 25, "step": 50, "spot": 23400.00},
-    "SENSEX": {"sec_id": 51, "seg": "BSE_IDX", "lot": 10, "step": 100, "spot": 78500.00},
+    "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 30, "step": 100, "spot": 51200.00},
+    "FINNIFTY": {"sec_id": 27, "seg": "IDX_I", "lot": 40, "step": 50, "spot": 23400.00},
+    "SENSEX": {"sec_id": 51, "seg": "BSE_IDX", "lot": 20, "step": 100, "spot": 78500.00},
     "RELIANCE": {"sec_id": 2885, "seg": "NSE_EQ", "lot": 250, "step": 20, "spot": 2950.00},
     "TCS": {"sec_id": 11536, "seg": "NSE_EQ", "lot": 175, "step": 20, "spot": 4120.00},
     "SBIN": {"sec_id": 3045, "seg": "NSE_EQ", "lot": 750, "step": 10, "spot": 820.00}
 }
-cfg = master_dict.get(selected_symbol.upper(), master_dict["NIFTY"])
-sec_id, seg, server_lot, step_size, def_spot = cfg["sec_id"], cfg["seg"], cfg["lot"], cfg["step"], cfg["spot"]
 
+cfg = master_dict.get(selected_symbol.upper(), master_dict["NIFTY"])
+sec_id, seg, default_lot = cfg["sec_id"], cfg["seg"], cfg["lot"]
+step_size, def_spot = cfg["step"], cfg["spot"]
+
+# Fetch Expiries
 try:
     expiries = InstitutionalDataEngine.fetch_expiries(client_id, access_token, sec_id, seg)
-    if not expiries:
-        expiries = ["2026-08-11", "2026-08-18"]
+    if not expiries: expiries = ["2026-08-11", "2026-08-18"]
 except Exception:
     expiries = ["2026-08-11", "2026-08-18"]
 
@@ -101,27 +91,24 @@ with col_c2:
     selected_expiry = st.selectbox("📅 Expiry", expiries, index=0, key=f"exp_{selected_symbol}")
 
 with col_c3:
-    strike_range_mode = st.selectbox(
-        "🎯 Range", 
-        ["±5 Strikes", "±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"],
-        index=1,
-        key=f"range_{selected_symbol}"
-    )
+    strike_range_mode = st.selectbox("🎯 Range", ["±5 Strikes", "±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"], index=1, key=f"range_{selected_symbol}")
 
 with col_c4:
     show_greeks = st.checkbox("Show Quant Greeks & Vanna/Charm", value=True)
 
-with col_c5:
-    lot_size = st.number_input(
-        "⚙️ Lot", 
-        min_value=1, 
-        max_value=10000, 
-        value=int(server_lot), 
-        step=1,
-        key=f"lot_{selected_symbol}"
-    )
+# Smart Auto-Detect API lot size vs Custom Dictionary Lot Size
+try:
+    auto_lot = InstitutionalDataEngine.get_lot_size(selected_symbol)
+except AttributeError:
+    auto_lot = default_lot
 
-# --- FETCH LIVE DATA SAFELY ---
+with col_c5:
+    # 🔒 DISABLED = TRUE: Now it will auto-select the lot size and lock it!
+    lot_size = st.number_input("⚙️ Lot (Auto-Fetched)", value=int(auto_lot), disabled=True, key=f"lot_{selected_symbol}")
+
+# ==========================================
+# 3. Fetch Live Data
+# ==========================================
 try:
     chain_df, live_spot = InstitutionalDataEngine.fetch_live_option_chain(
         client_id, access_token, sec_id, seg, selected_expiry, selected_symbol
@@ -130,7 +117,7 @@ except Exception:
     chain_df = pd.DataFrame()
     live_spot = def_spot
 
-# 🛠️ FIX 2: Dynamic Fallback generation if API fails (Uses correct step sizes)
+# Mock data generation if API fails or returns empty
 if chain_df is None or chain_df.empty:
     spot_val = live_spot if live_spot > 0 else def_spot
     atm_st = round(spot_val / step_size) * step_size
@@ -149,17 +136,24 @@ if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
     chain_df["Raw_CE_OI"] = chain_df["CE_OI"]
     chain_df["Raw_PE_OI"] = chain_df["PE_OI"]
 
-# Comprehensive Advanced Metrics Calculation Engine
-def calculate_advanced_metrics(df, spot, lot):
+# ==========================================
+# 4. Advanced Options Math & Greeks
+# ==========================================
+def calculate_advanced_metrics(df, spot, lot, expiry_str):
     r = 0.06 
-    T = 2 / 365.0
+    
+    # Dynamic Expiry Calculation for perfect Greeks
+    try:
+        exp_date = datetime.strptime(expiry_str, "%Y-%m-%d")
+        days_left = (exp_date - datetime.now()).days
+        T = max(1.0, days_left) / 365.0 
+    except Exception:
+        T = 5.0 / 365.0
     
     ce_deltas, pe_deltas = [], []
     gammas, ce_thetas, pe_thetas, vegas = [], [], [], []
-    ce_vannas, pe_vannas = [], []
-    ce_charms, pe_charms = [], []
-    ce_gexs, pe_gexs = [], []
-    ce_turnovers, pe_turnovers = [], []
+    ce_vannas, pe_vannas, ce_charms, pe_charms = [], [], [], []
+    ce_gexs, pe_gexs, ce_turnovers, pe_turnovers = [], [], [], []
     
     for _, row in df.iterrows():
         K = row['Strike']
@@ -200,41 +194,27 @@ def calculate_advanced_metrics(df, spot, lot):
         c_turnover = round((c_vol * c_ltp * lot) / 10000000.0, 2)
         p_turnover = round((p_vol * p_ltp * lot) / 10000000.0, 2)
 
-        ce_deltas.append(c_delta)
-        pe_deltas.append(p_delta)
-        gammas.append(gamma)
-        ce_thetas.append(c_theta)
-        pe_thetas.append(p_theta)
-        vegas.append(vega)
-        ce_vannas.append(vanna)
-        pe_vannas.append(vanna)
-        ce_charms.append(charm)
-        pe_charms.append(charm)
-        ce_gexs.append(ce_gex)
-        pe_gexs.append(pe_gex)
-        ce_turnovers.append(c_turnover)
-        pe_turnovers.append(p_turnover)
+        ce_deltas.append(c_delta); pe_deltas.append(p_delta); gammas.append(gamma)
+        ce_thetas.append(c_theta); pe_thetas.append(p_theta); vegas.append(vega)
+        ce_vannas.append(vanna); pe_vannas.append(vanna)
+        ce_charms.append(charm); pe_charms.append(charm)
+        ce_gexs.append(ce_gex); pe_gexs.append(pe_gex)
+        ce_turnovers.append(c_turnover); pe_turnovers.append(p_turnover)
         
-    df['CE Delta'] = ce_deltas
-    df['PE Delta'] = pe_deltas
-    df['Gamma'] = gammas
-    df['CE Theta'] = ce_thetas
-    df['PE Theta'] = pe_thetas
-    df['CE Vega'] = vegas
-    df['PE Vega'] = vegas
-    df['CE Vanna'] = ce_vannas
-    df['PE Vanna'] = pe_vannas
-    df['CE Charm'] = ce_charms
-    df['PE Charm'] = pe_charms
-    df['CE GEX (Cr)'] = ce_gexs
-    df['PE GEX (Cr)'] = pe_gexs
-    df['CE Turnover (Cr)'] = ce_turnovers
-    df['PE Turnover (Cr)'] = pe_turnovers
+    df['CE Delta'] = ce_deltas; df['PE Delta'] = pe_deltas; df['Gamma'] = gammas
+    df['CE Theta'] = ce_thetas; df['PE Theta'] = pe_thetas; df['CE Vega'] = vegas
+    df['PE Vega'] = vegas; df['CE Vanna'] = ce_vannas; df['PE Vanna'] = pe_vannas
+    df['CE Charm'] = ce_charms; df['PE Charm'] = pe_charms
+    df['CE GEX (Cr)'] = ce_gexs; df['PE GEX (Cr)'] = pe_gexs
+    df['CE Turnover (Cr)'] = ce_turnovers; df['PE Turnover (Cr)'] = pe_turnovers
     return df
 
-chain_df = calculate_advanced_metrics(chain_df, live_spot, lot_size)
+# Apply calculations
+chain_df = calculate_advanced_metrics(chain_df, live_spot, lot_size, selected_expiry)
 
-# Strike filtering
+# ==========================================
+# 5. Strike Filtering & Data Formatting
+# ==========================================
 if "±5" in strike_range_mode:
     chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
     center_idx = chain_df['Dist'].idxmin()
@@ -254,7 +234,7 @@ elif "±30" in strike_range_mode:
 else:
     disp_df = chain_df.copy()
 
-# Summary Metrics Bar
+# Summary Metrics Setup
 disp_df['View_Dist'] = abs(disp_df['Strike'] - live_spot)
 atm_row = disp_df.loc[disp_df['View_Dist'].idxmin()]
 atm_iv = round((atm_row.get('CE_IV', 14.0) + atm_row.get('PE_IV', 14.5)) / 2.0, 2)
@@ -264,6 +244,7 @@ f_ce_oi = disp_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in disp_df.columns else disp
 f_pe_oi = disp_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in disp_df.columns else disp_df['PE_OI'].sum()
 pcr_val = round(f_pe_oi / f_ce_oi, 2) if f_ce_oi > 0 else 1.0
 
+# Summary Metrics Display
 st.markdown("---")
 m1, m2, m3, m4 = st.columns(4)
 with m1: st.metric("Underlying Asset", selected_symbol)
@@ -272,7 +253,7 @@ with m3: st.metric("ATM Implied Volatility", f"{atm_iv}%")
 with m4: st.metric("Put-Call Ratio (PCR)", pcr_val)
 st.markdown("---")
 
-# Buildup helper
+# Buildup logic
 def get_buildup(chg_oi, pct_chg):
     if pct_chg > 0 and chg_oi > 0: return "Short Build"
     elif pct_chg < 0 and chg_oi < 0: return "Long Unwind"
@@ -282,7 +263,7 @@ def get_buildup(chg_oi, pct_chg):
 disp_df['CE Build'] = disp_df.apply(lambda r: get_buildup(r.get('CE_Chg_OI', 0), r.get('CE_%Chg', 0)), axis=1)
 disp_df['PE Build'] = disp_df.apply(lambda r: get_buildup(r.get('PE_Chg_OI', 0), r.get('PE_%Chg', 0)), axis=1)
 
-# Format columns for display
+# Format Final Display Columns
 disp_df['STRIKE'] = disp_df['Strike']
 disp_df['CE OI (L)'] = round(disp_df.get('Raw_CE_OI', disp_df.get('CE_OI', 0)) / 100000, 2)
 disp_df['PE OI (L)'] = round(disp_df.get('Raw_PE_OI', disp_df.get('PE_OI', 0)) / 100000, 2)
@@ -307,7 +288,9 @@ disp_df['PE Ask'] = round(disp_df['PE_LTP'] * 1.01, 2)
 disp_df['CE Spread %'] = np.where(disp_df['CE_LTP'] > 0, round(((disp_df['CE Ask'] - disp_df['CE Bid']) / disp_df['CE_LTP']) * 100, 2), 0.0)
 disp_df['PE Spread %'] = np.where(disp_df['PE_LTP'] > 0, round(((disp_df['PE Ask'] - disp_df['PE Bid']) / disp_df['PE_LTP']) * 100, 2), 0.0)
 
-# --- MATRIX LAYOUT ---
+# ==========================================
+# 6. Final Matrix Assembly & Styling
+# ==========================================
 if show_greeks:
     matrix_cols = [
         "CE Build", "CE GEX (Cr)", "CE Charm", "CE Vanna", "CE Vega", "CE Theta", "Gamma", "CE Delta",
@@ -338,15 +321,11 @@ final_cols = [c for c in matrix_cols if c in disp_df.columns]
 matrix_df = disp_df[final_cols].copy()
 matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
 
-# 🛠️ FIX 3: Dynamic ATM detection for the UI Stylizer
 atm_strike_val = round(live_spot / step_size) * step_size
 
-# --- PROFESSIONAL INSTITUTIONAL STYLING FUNCTION ---
 def professional_terminal_styling(row):
     strike = row['STRIKE']
     styles = [''] * len(row)
-    
-    # 🛠️ FIX 4: Replaced hardcoded "25" with "(step_size / 2)"
     is_atm = abs(strike - live_spot) <= (step_size / 2) or strike == atm_strike_val
     
     for i, col_name in enumerate(row.index):
@@ -356,33 +335,27 @@ def professional_terminal_styling(row):
             else:
                 styles[i] = 'background-color: #1f2937; color: #f9fafb; font-weight: bold;'
         elif 'CE' in col_name:
-            if strike < live_spot: # CE ITM
+            if strike < live_spot: 
                 styles[i] = 'background-color: #111e38; color: #e2e8f0;'
-            else: # CE OTM
+            else: 
                 styles[i] = 'background-color: #0f172a; color: #94a3b8;'
         elif 'PE' in col_name:
-            if strike > live_spot: # PE ITM
+            if strike > live_spot: 
                 styles[i] = 'background-color: #381116; color: #e2e8f0;'
-            else: # PE OTM
+            else: 
                 styles[i] = 'background-color: #1e1114; color: #94a3b8;'
         else:
             styles[i] = ''
             
         val = row[col_name]
         if isinstance(val, str):
-            if "Short Build" in val:
-                styles[i] += '; background-color: #7f1d1d; color: #fca5a5; font-weight: bold;'
-            elif "Long Build" in val:
-                styles[i] += '; background-color: #065f46; color: #6ee7b7; font-weight: bold;'
-            elif "Short Cover" in val:
-                styles[i] += '; background-color: #1e3a8a; color: #93c5fd; font-weight: bold;'
-            elif "Long Unwind" in val:
-                styles[i] += '; background-color: #78350f; color: #fde68a; font-weight: bold;'
+            if "Short Build" in val: styles[i] += '; background-color: #7f1d1d; color: #fca5a5; font-weight: bold;'
+            elif "Long Build" in val: styles[i] += '; background-color: #065f46; color: #6ee7b7; font-weight: bold;'
+            elif "Short Cover" in val: styles[i] += '; background-color: #1e3a8a; color: #93c5fd; font-weight: bold;'
+            elif "Long Unwind" in val: styles[i] += '; background-color: #78350f; color: #fde68a; font-weight: bold;'
         elif isinstance(val, (int, float)):
-            if val > 0 and col_name != 'STRIKE':
-                styles[i] += '; color: #34d399;'
-            elif val < 0:
-                styles[i] += '; color: #f87171;'
+            if val > 0 and col_name != 'STRIKE': styles[i] += '; color: #34d399;'
+            elif val < 0: styles[i] += '; color: #f87171;'
                 
     return styles
 
