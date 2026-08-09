@@ -6,7 +6,6 @@ import numpy as np
 import scipy.stats as si
 import plotly.graph_objects as go
 
-# Bulletproof Dynamic Path Resolution
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
@@ -23,49 +22,47 @@ access_token = st.session_state.get("access_token", "")
 
 st.sidebar.markdown(f"### 📌 Active Asset: `{selected_symbol}`")
 
-# 1. Automatic Scrip Master Lookup (Security ID, Segment, & Lot Size)
+# Guaranteed Direct Mapping (Prevents wrong default fallback to NIFTY)
 @st.cache_data(ttl=3600)
-def get_scrip_and_lot_details(symbol):
+def get_asset_master_config(symbol):
+    master_dict = {
+        "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 25},
+        "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 15},
+        "FINNIFTY": {"sec_id": 27, "seg": "IDX_I", "lot": 25},
+        "SENSEX": {"sec_id": 51, "seg": "BSE_IDX", "lot": 10},
+        "RELIANCE": {"sec_id": 2885, "seg": "NSE_EQ", "lot": 250},
+        "TCS": {"sec_id": 11536, "seg": "NSE_EQ", "lot": 175},
+        "SBIN": {"sec_id": 3045, "seg": "NSE_EQ", "lot": 750}
+    }
+    
+    # Primary check from dictionary
+    if symbol.upper() in master_dict:
+        cfg = master_dict[symbol.upper()]
+        return cfg["sec_id"], cfg["seg"], cfg["lot"]
+        
+    # Secondary check from Scrip Master CSV
     df_scrip = InstitutionalDataEngine.load_scrip_master()
     if not df_scrip.empty:
         match = df_scrip[df_scrip['SEM_TRADING_SYMBOL'].str.upper() == symbol.upper()]
         if not match.empty:
             row = match.iloc[0]
-            sec_id = int(row['SEM_SMST_SECURITY_ID'])
-            seg = str(row['SEM_SEGMENT'])
-            # Scrip master se lot size extract karna
-            lot_size = int(row.get('SEM_LOT_SIZE', 25))
-            return sec_id, seg, lot_size
+            return int(row['SEM_SMST_SECURITY_ID']), str(row['SEM_SEGMENT']), int(row.get('SEM_LOT_SIZE', 25))
             
-    # Fallback default values
-    defaults = {
-        "NIFTY": (13, "IDX_I", 25),
-        "BANKNIFTY": (25, "IDX_I", 15),
-        "FINNIFTY": (27, "IDX_I", 25),
-        "SENSEX": (51, "BSE_IDX", 10),
-        "RELIANCE": (2885, "NSE_EQ", 250),
-        "TCS": (11536, "NSE_EQ", 175),
-        "SBIN": (3045, "NSE_EQ", 750)
-    }
-    return defaults.get(symbol, (13, "IDX_I", 25))
+    return 13, "IDX_I", 25
 
-sec_id, seg, auto_lot_size = get_scrip_and_lot_details(selected_symbol)
+sec_id, seg, auto_lot_size = get_asset_master_config(selected_symbol)
 
-# 2. Automatically Fetch Live Expiries from API
+# Expiry fetch based on active asset
 expiries = InstitutionalDataEngine.fetch_expiries(client_id, access_token, sec_id, seg)
-if not expiries:
-    expiries = ["2026-08-13", "2026-08-20", "2026-08-27"]
-
-selected_expiry = st.sidebar.selectbox("Expiry Date", expiries, key="oc_exp_master")
+selected_expiry = st.sidebar.selectbox("Expiry Date", expiries, key=f"exp_{selected_symbol}")
 
 strike_range_mode = st.sidebar.radio(
     "Option Chain Strike Range", 
     ["±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"],
     index=1,
-    key="strike_range_gex_master"
+    key=f"range_{selected_symbol}"
 )
 
-# 3. Lot Size Control (Auto-populated from Scrip Master with Override Option)
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ⚙️ Lot Size Control")
 lot_size = st.sidebar.number_input(
@@ -74,8 +71,8 @@ lot_size = st.sidebar.number_input(
     max_value=10000, 
     value=int(auto_lot_size), 
     step=1,
-    key=f"lot_override_{selected_symbol}",
-    help="स्कrip मास्टर से ऑटो-डिटेक्टेड लॉट साइज़।"
+    key=f"lot_{selected_symbol}",
+    help="ऑटो-डिटेक्टेड लॉट साइज़।"
 )
 
 tab1, tab2, tab3 = st.tabs([
@@ -84,7 +81,7 @@ tab1, tab2, tab3 = st.tabs([
     "🚀 IV Smile, Sigma Bands & Strategy Desk"
 ])
 
-# Fetch Real Option Chain Data
+# Fetch data unique to selected asset, sec_id, and expiry
 chain_df, live_spot = InstitutionalDataEngine.fetch_live_option_chain(
     client_id, access_token, sec_id, seg, selected_expiry, selected_symbol
 )
@@ -96,7 +93,6 @@ if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
 def calculate_institutional_greeks_and_gex(df, spot, lot):
     r = 0.06 
     T = 4 / 365.0 
-    
     ce_deltas, pe_deltas = [], []
     gammas, ce_thetas, pe_thetas, vegas = [], [], [], []
     net_gexs = []
@@ -105,7 +101,6 @@ def calculate_institutional_greeks_and_gex(df, spot, lot):
         K = row['Strike']
         call_oi = row.get('Raw_CE_OI', row.get('CE_OI', 100000))
         put_oi = row.get('Raw_PE_OI', row.get('PE_OI', 100000))
-        
         c_iv = row.get('CE_IV', row.get('CE IV', 14.0)) / 100.0
         sigma = max(c_iv, 0.01)
         
@@ -124,7 +119,6 @@ def calculate_institutional_greeks_and_gex(df, spot, lot):
             c_delta, p_delta, gamma, c_theta, p_theta, vega = 0.5, -0.5, 0.001, -5.0, -5.0, 10.0
 
         net_gex = (call_oi - put_oi) * lot * (spot ** 2) * gamma / 1000000000.0
-        
         ce_deltas.append(round(c_delta, 2))
         pe_deltas.append(round(p_delta, 2))
         gammas.append(round(gamma, 5))
