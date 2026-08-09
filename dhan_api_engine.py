@@ -1,8 +1,54 @@
-@staticmethod
+import streamlit as st
+import pandas as pd
+import numpy as np
+import requests
+from datetime import datetime
+
+class InstitutionalDataEngine:
+    """
+    Quant Terminal Pro ke liye Advanced Data Pipeline aur Caching Engine.
+    Yeh class API authentication, scrip master matching, expiry sync aur Greeks/GEX calculation ko handle karti hai.
+    """
+
+    @staticmethod
+    @st.cache_data(ttl=3600)
+    def load_scrip_master():
+        """Dhan Cloud se universal scrip master database download karta hai."""
+        try:
+            url = "https://images.dhan.co/api-data/api-scrip-master.csv"
+            df = pd.read_csv(url, low_memory=False)
+            df.columns = [str(col).strip().upper() for col in df.columns]
+            return df
+        except Exception as e:
+            st.error(f"Scrip Master Download Error: {e}")
+            return pd.DataFrame()
+
+    @staticmethod
+    @st.cache_data(ttl=60)
+    def fetch_expiries(client_id, access_token, sec_id, seg):
+        """Selected underlying ke liye active expiry dates ki list laata hai."""
+        url = "https://api.dhan.co/v2/optionchain/expirylist"
+        headers = {
+            "access-token": str(access_token).strip(), 
+            "client-id": str(client_id).strip(), 
+            "Content-Type": "application/json"
+        }
+        payload = {"UnderlyingScrip": int(sec_id), "UnderlyingSeg": str(seg).strip()}
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=8)
+            if response.status_code == 200:
+                res = response.json()
+                if res.get("status") == "success":
+                    return res.get("data", [])
+        except Exception:
+            pass
+        return [datetime.now().strftime("%Y-%m-%d")]
+
+    @staticmethod
     @st.cache_data(ttl=10)
     def fetch_live_option_chain(client_id, access_token, sec_id, seg, exp, symbol):
         """
-        Dhan API se real-time option chain data fetch karta hai aur web ke standard format ke anuroop map karta hai.
+        Dhan API se real-time option chain data fetch karta hai aur standard format mein map karta hai.
         """
         url = "https://api.dhan.co/v2/optionchain"
         headers = {
@@ -42,7 +88,6 @@
                             records.append({
                                 "Strike": int(s_val),
                                 "STRIKE": int(s_val),
-                                # Call Side
                                 "CE_OI": ce_oi,
                                 "Raw_CE_OI": ce_oi,
                                 "CE_Chg_OI": ce_chg_oi,
@@ -54,8 +99,6 @@
                                 "CE_Gamma": float(ce.get("gamma", 0.0015)),
                                 "CE_Theta": float(ce.get("theta", -5.0)),
                                 "CE_Vega": float(ce.get("vega", 12.0)),
-                                
-                                # Put Side
                                 "PE_LTP": float(pe.get("last_price", 0.0)),
                                 "PE_IV": float(pe.get("iv", 14.5)),
                                 "PE_Volume": int(pe.get("volume", 0)),
@@ -75,7 +118,7 @@
         except Exception:
             pass
             
-        # --- FALLBACK REALISTIC NIFTY SIMULATION (Aapke diye gaye live spot 24,570.65 ke aadhar par) ---
+        # --- FALLBACK SIMULATION ENGINE ---
         fallback_spot = 24570.65
         step = 50
         atm = round(fallback_spot / step) * step
@@ -97,10 +140,9 @@
                 "CE_%Chg": round(np.random.uniform(-15, 20), 2),
                 "CE_Volume": c_oi * 2,
                 "CE_IV": round(13.0 + (distance / fallback_spot) * 10, 2),
-                "CE_LTP": round(max(0.05, (fallback_spot - s) + 100 if s < fallback_spot else max(0.05, 100 - (s - fallback_spot)*0.1), 2),
+                "CE_LTP": round(max(0.05, 100 - (distance * 0.1)), 2),
                 "CE_Delta": 0.5, "CE_Gamma": 0.001, "CE_Theta": -5.0, "CE_Vega": 12.0,
-                
-                "PE_LTP": round(max(0.05, (s - fallback_spot) + 100 if s > fallback_spot else max(0.05, 100 - (fallback_spot - s)*0.1), 2),
+                "PE_LTP": round(max(0.05, 100 - (distance * 0.1)), 2),
                 "PE_IV": round(13.5 + (distance / fallback_spot) * 10, 2),
                 "PE_Volume": p_oi * 2,
                 "PE_Chg_OI": int(np.random.randint(-200000, 300000)),
