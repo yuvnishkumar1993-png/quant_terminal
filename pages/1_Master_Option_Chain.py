@@ -41,27 +41,34 @@ except ImportError:
                 })
             return pd.DataFrame(recs), spot
 
-# Professional Styling Injection (Terminal Grade UI)
+# Professional Styling Injection (Terminal Grade UI & Sticky Headers)
 st.markdown("""
 <style>
     .main { background-color: #0e1117; color: #f8fafc; }
-    .stSelectbox, .stNumberInput { font-size: 14px; }
-    div.stMetric { background-color: #161b22; padding: 12px; border-radius: 8px; border: 1px solid #30363d; }
-    div.stMetric label { color: #8b949e !important; font-weight: 600; }
-    div.stMetric div[data-testid="stMetricValue"] { color: #f0f6fc !important; font-size: 22px !important; }
+    div[data-testid="stHorizontalBlock"] > div { align-items: center; }
+    [data-testid="stDataFrame"] { border: 1px solid #30363d; border-radius: 8px; }
+    [data-testid="stDataFrame"] th {
+        position: sticky !important;
+        top: 0 !important;
+        background-color: #161b22 !important;
+        color: #f0f6fc !important;
+        font-weight: 600 !important;
+        z-index: 999 !important;
+        border-bottom: 2px solid #30363d !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("## ⚡ Institutional Professional Quant Terminal")
+st.markdown("## ⚡ Institutional Quant Terminal Pro")
 st.markdown("---")
 
-# --- TOP EMBEDDED CONTROLS ---
-col_c1, col_c2, col_c3 = st.columns([2, 2, 4])
+# --- COMPACT INLINE CONTROLS & TICKER BAR ---
+col_c1, col_c2, col_c3, col_c4, col_c5 = st.columns([1.5, 1.5, 2, 2, 1.5])
 
 with col_c1:
     all_symbols = ["NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "RELIANCE", "TCS", "SBIN"]
     current_idx = all_symbols.index(st.session_state.get("global_symbol", "NIFTY")) if st.session_state.get("global_symbol", "NIFTY") in all_symbols else 0
-    selected_symbol = st.selectbox("📌 Underlying Asset", all_symbols, index=current_idx, key="page_asset_sel")
+    selected_symbol = st.selectbox("📌 Asset", all_symbols, index=current_idx, key="page_asset_sel")
     st.session_state.global_symbol = selected_symbol
 
 client_id = st.session_state.get("client_id", "")
@@ -87,29 +94,28 @@ except Exception:
     expiries = ["2026-08-11", "2026-08-18"]
 
 with col_c2:
-    selected_expiry = st.selectbox("📅 Expiry Date", expiries, index=0, key=f"exp_{selected_symbol}")
+    selected_expiry = st.selectbox("📅 Expiry", expiries, index=0, key=f"exp_{selected_symbol}")
 
-strike_range_mode = st.sidebar.selectbox(
-    "Option Chain Strike Range", 
-    ["±5 Strikes", "±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"],
-    index=1,
-    key=f"range_{selected_symbol}"
-)
+with col_c3:
+    strike_range_mode = st.selectbox(
+        "🎯 Range", 
+        ["±5 Strikes", "±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"],
+        index=1,
+        key=f"range_{selected_symbol}"
+    )
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🎛️ View Preferences")
-show_greeks = st.sidebar.checkbox("Show Quantitative Greeks & GEX", value=True)
+with col_c4:
+    show_greeks = st.checkbox("Show Quant Greeks & Vanna/Charm", value=True)
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### ⚙️ Lot Size")
-lot_size = st.sidebar.number_input(
-    "Override Lot Size", 
-    min_value=1, 
-    max_value=10000, 
-    value=int(server_lot), 
-    step=1,
-    key=f"lot_{selected_symbol}"
-)
+with col_c5:
+    lot_size = st.number_input(
+        "⚙️ Lot", 
+        min_value=1, 
+        max_value=10000, 
+        value=int(server_lot), 
+        step=1,
+        key=f"lot_{selected_symbol}"
+    )
 
 # --- FETCH LIVE DATA SAFELY ---
 try:
@@ -296,19 +302,31 @@ disp_df['CE Spread %'] = np.where(disp_df['CE_LTP'] > 0, round(((disp_df['CE Ask
 disp_df['PE Spread %'] = np.where(disp_df['PE_LTP'] > 0, round(((disp_df['PE Ask'] - disp_df['PE Bid']) / disp_df['PE_LTP']) * 100, 2), 0.0)
 
 # --- MATRIX LAYOUT ---
-matrix_cols = [
-    "CE Build", "CE GEX (Cr)", "CE Charm", "CE Vanna", "CE Vega", "CE Theta", "Gamma", "CE Delta",
-    "CE Vol Chg %", "CE Vol Chg", "CE Vol (M)", "CE Turnover (Cr)", "CE OI Chg %", "CE OI Chg", "CE OI (L)",
-    "CE Spread %", "CE Ask", "CE Bid", "CE_LTP"
-]
+if show_greeks:
+    matrix_cols = [
+        "CE Build", "CE GEX (Cr)", "CE Charm", "CE Vanna", "CE Vega", "CE Theta", "Gamma", "CE Delta",
+        "CE Vol Chg %", "CE Vol Chg", "CE Vol (M)", "CE Turnover (Cr)", "CE OI Chg %", "CE OI Chg", "CE OI (L)",
+        "CE Spread %", "CE Ask", "CE Bid", "CE_LTP"
+    ]
+else:
+    matrix_cols = [
+        "CE Build", "CE Vol Chg %", "CE Vol Chg", "CE Vol (M)", "CE Turnover (Cr)", "CE OI Chg %", "CE OI Chg", "CE OI (L)",
+        "CE Spread %", "CE Ask", "CE Bid", "CE_LTP"
+    ]
 
 matrix_cols += ["STRIKE"]
 
-matrix_cols += [
-    "PE_LTP", "PE Bid", "PE Ask", "PE Spread %",
-    "PE OI (L)", "PE OI Chg", "PE OI Chg %", "PE Turnover (Cr)", "PE Vol (M)", "PE Vol Chg", "PE Vol Chg %",
-    "PE Delta", "Gamma", "PE Theta", "PE Vega", "PE Vanna", "PE Charm", "PE GEX (Cr)", "PE Build"
-]
+if show_greeks:
+    matrix_cols += [
+        "PE_LTP", "PE Bid", "PE Ask", "PE Spread %",
+        "PE OI (L)", "PE OI Chg", "PE OI Chg %", "PE Turnover (Cr)", "PE Vol (M)", "PE Vol Chg", "PE Vol Chg %",
+        "PE Delta", "Gamma", "PE Theta", "PE Vega", "PE Vanna", "PE Charm", "PE GEX (Cr)", "PE Build"
+    ]
+else:
+    matrix_cols += [
+        "PE_LTP", "PE Bid", "PE Ask", "PE Spread %",
+        "PE OI (L)", "PE OI Chg", "PE OI Chg %", "PE Turnover (Cr)", "PE Vol (M)", "PE Vol Chg", "PE Vol Chg %", "PE Build"
+    ]
 
 final_cols = [c for c in matrix_cols if c in disp_df.columns]
 matrix_df = disp_df[final_cols].copy()
@@ -362,25 +380,6 @@ def professional_terminal_styling(row):
 
 styled_df = matrix_df.style.apply(professional_terminal_styling, axis=1)
 
-# Custom CSS for sticky headers and gorgeous layout
-st.markdown("""
-<style>
-    [data-testid="stDataFrame"] {
-        border: 1px solid #30363d;
-        border-radius: 8px;
-    }
-    [data-testid="stDataFrame"] th {
-        position: sticky !important;
-        top: 0 !important;
-        background-color: #161b22 !important;
-        color: #f0f6fc !important;
-        font-weight: 600 !important;
-        z-index: 999 !important;
-        border-bottom: 2px solid #30363d !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 st.markdown(f"### 📊 Professional Institutional Option Chain ({strike_range_mode})")
 st.markdown("---")
 st.dataframe(styled_df, use_container_width=True, height=650, hide_index=True)
@@ -405,4 +404,4 @@ with col_l3:
 
 with col_l4:
     st.markdown("🟢 / 🔴 **Institutional Buildup Tags**")
-    st.caption("• Long Build (हरा), Short Build (लाल), Short Cover (नीला) और Long Unwind (पीला)।")
+    st.caption("• Long Build (हरा), Short Build (लाल), Short Cover (नीला) और Long Unwind (पीला)।")v
