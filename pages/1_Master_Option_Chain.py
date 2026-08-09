@@ -13,7 +13,7 @@ if ROOT_DIR not in sys.path:
 from dhan_api_engine import InstitutionalDataEngine
 
 st.set_page_config(page_title="Institutional Option Chain Desk", page_icon="⚡", layout="wide")
-st.markdown("## ⚡ Institutional Option Chain & Gamma Flip Terminal")
+st.markdown("## ⚡ Advanced Institutional Quant Option Chain & Master Signal Desk")
 st.markdown("---")
 
 selected_symbol = st.session_state.get("global_symbol", "NIFTY")
@@ -22,7 +22,7 @@ access_token = st.session_state.get("access_token", "")
 
 st.sidebar.markdown(f"### 📌 Active Asset: `{selected_symbol}`")
 
-# Guaranteed Direct Mapping (Prevents wrong default fallback to NIFTY)
+# Guaranteed Direct Mapping for Asset Config
 @st.cache_data(ttl=3600)
 def get_asset_master_config(symbol):
     master_dict = {
@@ -34,34 +34,28 @@ def get_asset_master_config(symbol):
         "TCS": {"sec_id": 11536, "seg": "NSE_EQ", "lot": 175},
         "SBIN": {"sec_id": 3045, "seg": "NSE_EQ", "lot": 750}
     }
-    
-    # Primary check from dictionary
     if symbol.upper() in master_dict:
         cfg = master_dict[symbol.upper()]
         return cfg["sec_id"], cfg["seg"], cfg["lot"]
-        
-    # Secondary check from Scrip Master CSV
-    df_scrip = InstitutionalDataEngine.load_scrip_master()
-    if not df_scrip.empty:
-        match = df_scrip[df_scrip['SEM_TRADING_SYMBOL'].str.upper() == symbol.upper()]
-        if not match.empty:
-            row = match.iloc[0]
-            return int(row['SEM_SMST_SECURITY_ID']), str(row['SEM_SEGMENT']), int(row.get('SEM_LOT_SIZE', 25))
-            
     return 13, "IDX_I", 25
 
 sec_id, seg, auto_lot_size = get_asset_master_config(selected_symbol)
 
-# Expiry fetch based on active asset
+# Expiry & Range Controls in Sidebar
 expiries = InstitutionalDataEngine.fetch_expiries(client_id, access_token, sec_id, seg)
 selected_expiry = st.sidebar.selectbox("Expiry Date", expiries, key=f"exp_{selected_symbol}")
 
-strike_range_mode = st.sidebar.radio(
+strike_range_mode = st.sidebar.selectbox(
     "Option Chain Strike Range", 
-    ["±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"],
+    ["±5 Strikes", "±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"],
     index=1,
     key=f"range_{selected_symbol}"
 )
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎛️ Column View Manager")
+show_greeks = st.sidebar.checkbox("Show Advanced Greeks (Delta, Gamma, Theta, Vega)", value=True)
+show_advanced_stats = st.sidebar.checkbox("Show Open = High / Low & Concentration Markers", value=True)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ⚙️ Lot Size Control")
@@ -71,17 +65,16 @@ lot_size = st.sidebar.number_input(
     max_value=10000, 
     value=int(auto_lot_size), 
     step=1,
-    key=f"lot_{selected_symbol}",
-    help="ऑटो-डिटेक्टेड लॉट साइज़।"
+    key=f"lot_{selected_symbol}"
 )
 
 tab1, tab2, tab3 = st.tabs([
-    "📊 Live Option Chain & OI Walls", 
+    "📊 Live Option Chain Matrix", 
     "🎯 Max Pain, Settlement & GEX Profile", 
     "🚀 IV Smile, Sigma Bands & Strategy Desk"
 ])
 
-# Fetch data unique to selected asset, sec_id, and expiry
+# Fetch Live Data
 chain_df, live_spot = InstitutionalDataEngine.fetch_live_option_chain(
     client_id, access_token, sec_id, seg, selected_expiry, selected_symbol
 )
@@ -138,10 +131,13 @@ def calculate_institutional_greeks_and_gex(df, spot, lot):
 
 chain_df = calculate_institutional_greeks_and_gex(chain_df, live_spot, lot_size)
 
+# Strike Range Filtering Logic
 chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
 center_idx = chain_df['Dist'].idxmin()
 
-if "±10" in strike_range_mode:
+if "±5" in strike_range_mode:
+    disp_df = chain_df.iloc[max(0, center_idx-5):min(len(chain_df), center_idx+6)].copy()
+elif "±10" in strike_range_mode:
     disp_df = chain_df.iloc[max(0, center_idx-10):min(len(chain_df), center_idx+11)].copy()
 elif "±20" in strike_range_mode:
     disp_df = chain_df.iloc[max(0, center_idx-20):min(len(chain_df), center_idx+21)].copy()
@@ -150,16 +146,17 @@ elif "±30" in strike_range_mode:
 else:
     disp_df = chain_df.copy()
 
+# ATM IV and PCR Calculation
 disp_df['View_Dist'] = abs(disp_df['Strike'] - live_spot)
 atm_row_view = disp_df.loc[disp_df['View_Dist'].idxmin()]
-c_iv_v = atm_row_view.get('CE_IV', atm_row_view.get('CE IV', 14.0))
-p_iv_v = atm_row_view.get('PE_IV', atm_row_view.get('PE IV', 14.5))
+c_iv_v = atm_row_view.get('CE_IV', 14.0)
+p_iv_v = atm_row_view.get('PE_IV', 14.5)
 dynamic_atm_iv = round((c_iv_v + p_iv_v) / 2.0, 2)
 disp_df = disp_df.drop(columns=['View_Dist'])
 
-filtered_ce_oi_sum = disp_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in disp_df.columns else disp_df['CE_OI'].sum()
-filtered_pe_oi_sum = disp_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in disp_df.columns else disp_df['PE_OI'].sum()
-dynamic_pcr = round(filtered_pe_oi_sum / filtered_ce_oi_sum, 2) if filtered_ce_oi_sum > 0 else 1.0
+filtered_ce_oi = disp_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in disp_df.columns else disp_df['CE_OI'].sum()
+filtered_pe_oi = disp_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in disp_df.columns else disp_df['PE_OI'].sum()
+dynamic_pcr = round(filtered_pe_oi / filtered_ce_oi, 2) if filtered_ce_oi > 0 else 1.0
 
 flip_strike = live_spot
 if not chain_df.empty:
@@ -175,42 +172,52 @@ with tab1:
     with col_h2: st.metric(label="Spot Price", value=f"₹{live_spot:,.2f}")
     with col_h3: st.metric(label=f"ATM IV ({strike_range_mode})", value=f"{dynamic_atm_iv}%")
     with col_h4: st.metric(label=f"PCR ({strike_range_mode})", value=dynamic_pcr)
-    with col_h5: st.metric(label="Gamma Flip Zone", value=f"₹{flip_strike:,.0f}", delta="Dealer Neutral Pivot")
+    with col_h5: st.metric(label="Gamma Flip Pivot", value=f"₹{flip_strike:,.0f}", delta="Dealer Neutral")
 
     st.markdown("---")
 
-    def classify_buildup(row):
-        ce_chg = row.get('CE_Chg_OI', row.get('CE Chg OI', 0))
-        ce_pct = row.get('CE_%Chg', row.get('CE %Chg', 0))
-        if ce_pct > 0 and ce_chg > 0: return "Short Buildup"
-        elif ce_pct < 0 and ce_chg < 0: return "Long Unwinding"
-        elif ce_pct > 0 and ce_chg < 0: return "Short Covering"
-        return "Long Buildup"
+    # Build-up Classification Function
+    def classify_buildup(chg_oi, pct_chg):
+        if pct_chg > 0 and chg_oi > 0: return "🟢 Short Build"
+        elif pct_chg < 0 and chg_oi < 0: return "🔴 Long Unwind"
+        elif pct_chg > 0 and chg_oi < 0: return "⚡ Short Cover"
+        return "🔵 Long Build"
 
-    disp_df['OI Action'] = disp_df.apply(classify_buildup, axis=1)
+    disp_df['CE Buildup'] = disp_df.apply(lambda r: classify_buildup(r.get('CE_Chg_OI', 0), r.get('CE_%Chg', 0)), axis=1)
+    disp_df['PE Buildup'] = disp_df.apply(lambda r: classify_buildup(r.get('PE_Chg_OI', 0), r.get('PE_%Chg', 0)), axis=1)
 
+    # Format Columns for Display
+    disp_df['STRIKE'] = disp_df['Strike']
     disp_df['CE OI (L)'] = round(disp_df.get('Raw_CE_OI', disp_df.get('CE_OI', 0)) / 100000, 2)
     disp_df['PE OI (L)'] = round(disp_df.get('Raw_PE_OI', disp_df.get('PE_OI', 0)) / 100000, 2)
-    disp_df['STRIKE'] = disp_df['Strike']
+    disp_df['CE Vol (M)'] = round(disp_df.get('CE_Volume', 0) / 1000000, 2)
+    disp_df['PE Vol (M)'] = round(disp_df.get('PE_Volume', 0) / 1000000, 2)
 
-    cols_order = [
-        "CE_LTP", "CE_IV", "CE Delta", "CE Theta", "CE_Volume", "CE_Chg_OI", "CE OI (L)",
-        "STRIKE", "OI Action",
-        "Gamma", "Vega", "PE Theta", "PE Delta", "PE_IV", "PE_LTP", "PE_Volume", "PE_Chg_OI", "PE OI (L)"
-    ]
+    # Column structuring
+    matrix_cols = ["CE_LTP", "CE_%Chg", "CE_IV", "CE OI (L)", "CE_Chg_OI", "CE Vol (M)", "CE Buildup"]
+    if show_greeks:
+        matrix_cols += ["CE Delta", "Gamma", "CE Theta", "Vega"]
+        
+    matrix_cols += ["STRIKE"]
     
-    final_oc_cols = [c for c in cols_order if c in disp_df.columns]
-    matrix_df = disp_df[final_oc_cols].copy()
+    if show_greeks:
+        matrix_cols += ["PE Delta", "PE Theta", "Vega"]
+        
+    matrix_cols += ["PE Buildup", "PE Vol (M)", "PE_Chg_OI", "PE OI (L)", "PE_IV", "PE_%Chg", "PE_LTP"]
 
-    st.markdown(f"### Live Option Chain & Smart Buildup Matrix ({strike_range_mode})")
-    st.dataframe(matrix_df, use_container_width=True, height=520, hide_index=True)
+    final_cols = [c for c in matrix_cols if c in disp_df.columns]
+    matrix_df = disp_df[final_cols].copy()
 
-    st.markdown("### Open Interest Concentration Walls (Support & Resistance)")
+    st.markdown(f"### 📊 Master Option Chain Matrix ({strike_range_mode})")
+    st.dataframe(matrix_df, use_container_width=True, height=540, hide_index=True)
+
+    # OI Concentration Walls Chart
+    st.markdown("### 📈 Open Interest Concentration Walls (Support & Resistance)")
     wall_df = disp_df.copy()
     
     fig_wall = go.Figure()
-    fig_wall.add_trace(go.Bar(x=wall_df['STRIKE'].astype(str), y=wall_df['CE OI (L)'], name="Call OI (Resistance)", marker_color='#d73a49'))
-    fig_wall.add_trace(go.Bar(x=wall_df['STRIKE'].astype(str), y=wall_df['PE OI (L)'], name="Put OI (Support)", marker_color='#28a745'))
+    fig_wall.add_trace(go.Bar(x=wall_df['STRIKE'].astype(str), y=wall_df['CE OI (L)'], name="Call OI (Resistance - Lakhs)", marker_color='#d73a49'))
+    fig_wall.add_trace(go.Bar(x=wall_df['STRIKE'].astype(str), y=wall_df['PE OI (L)'], name="Put OI (Support - Lakhs)", marker_color='#28a745'))
     
     fig_wall.update_layout(
         template='plotly_white',
@@ -226,8 +233,7 @@ with tab1:
     st.plotly_chart(fig_wall, use_container_width=True)
 
 with tab2:
-    st.markdown(f"### Max Pain, Settlement & Gamma Exposure (GEX) Profile ({selected_symbol})")
-    
+    st.markdown(f"### 🎯 Max Pain, Settlement & Gamma Exposure (GEX) Profile ({selected_symbol})")
     strikes_list = chain_df['Strike'].values
     pain_dict = {}
     for expiry_price in strikes_list:
@@ -249,32 +255,29 @@ with tab2:
     with m4: st.metric(label="Expiry Date", value=selected_expiry)
 
     st.markdown("---")
-
     df_pain_full = pd.DataFrame([{"Strike": k, "Total Payout/Pain Value": v} for k, v in pain_dict.items()])
     
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
+    fig_pain = go.Figure()
+    fig_pain.add_trace(go.Bar(
         x=df_pain_full['Strike'].astype(str), 
         y=df_pain_full['Total Payout/Pain Value'],
         name="Settlement Pain",
         marker_color=['#28a745' if s == max_pain else ('#6f42c1' if s == flip_strike else '#0366d6') for s in df_pain_full['Strike']]
     ))
-    
-    fig.update_layout(
+    fig_pain.update_layout(
         template='plotly_white',
         plot_bgcolor='#ffffff',
         paper_bgcolor='#ffffff',
         font=dict(color='#24292e', size=12),
         xaxis=dict(type='category', title="Strike Prices", tickangle=-45, fixedrange=False),
         yaxis=dict(title="Holder Pain Value (₹)", fixedrange=True),
-        height=360,
+        height=380,
         margin=dict(l=20, r=20, t=30, b=20)
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_pain, use_container_width=True)
 
 with tab3:
-    st.markdown(f"### IV Smile / Skew & Volatility Bands ({selected_symbol})")
-    
+    st.markdown(f"### 🚀 IV Smile / Skew & Volatility Bands ({selected_symbol})")
     fig_iv = go.Figure()
     iv_plot_df = disp_df.copy()
     ce_iv_col = 'CE_IV' if 'CE_IV' in iv_plot_df.columns else 'CE IV'
@@ -289,7 +292,7 @@ with tab3:
         font=dict(color='#24292e', size=12),
         xaxis=dict(type='category', title="Strike Prices", tickangle=-45, fixedrange=False),
         yaxis=dict(title="Implied Volatility (%)", fixedrange=True),
-        height=360,
+        height=380,
         margin=dict(l=20, r=20, t=30, b=20)
     )
     st.plotly_chart(fig_iv, use_container_width=True)
