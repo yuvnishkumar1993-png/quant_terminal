@@ -1,14 +1,13 @@
 import streamlit as st
 import plotly.graph_objects as go
 import numpy as np
-from dhan_api_engine import DhanAPIEngine
+from backend import get_market_data
 
 st.set_page_config(layout="wide")
-st.title("🖥️ PAGE 2: ADVANCED GRAPHICAL TERMINAL (ALL 10 MODULES)")
-
 asset = st.session_state.get("selected_asset", "SENSEX")
-api_engine = DhanAPIEngine()
-spot, chain_df, _, _, _ = api_engine.get_market_data(asset)
+spot, chain_df, _, _, _ = get_market_data(asset)
+
+st.header(f"🖥️ PAGE 2: ADVANCED GRAPHICAL TERMINAL (ALL 10 MODULES) — {asset}")
 
 t1, t2, t3, t4, t5, t6, t7, t8, t9, t10 = st.tabs([
     "Mod A: OI Profile", "Mod B: Gamma GEX", "Mod C: IV Smile", "Mod D: Volume", 
