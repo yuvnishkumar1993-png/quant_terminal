@@ -41,7 +41,7 @@ except ImportError:
                 })
             return pd.DataFrame(recs), spot
 
-st.markdown("## ⚡ Institutional Mirror-Image Option Chain & Quant Desk")
+st.markdown("## ⚡ Institutional Color-Coded Option Chain & Quant Desk")
 st.markdown("---")
 
 # --- TOP EMBEDDED CONTROLS ---
@@ -240,7 +240,7 @@ disp_df['PE OI Chg'] = disp_df.get('PE_Chg_OI', 0)
 disp_df['CE OI Chg %'] = disp_df.get('CE_%Chg', 0.0)
 disp_df['PE OI Chg %'] = disp_df.get('PE_%Chg', 0.0)
 
-disp_df['CE Vol Chg'] = round(disp_df['CE Vol (M)'] * 0.1, 2) # Calculated/proxy volume change
+disp_df['CE Vol Chg'] = round(disp_df['CE Vol (M)'] * 0.1, 2)
 disp_df['PE Vol Chg'] = round(disp_df['PE Vol (M)'] * 0.1, 2)
 
 disp_df['CE Bid'] = round(disp_df['CE_LTP'] * 0.99, 2)
@@ -251,12 +251,7 @@ disp_df['PE Ask'] = round(disp_df['PE_LTP'] * 1.01, 2)
 disp_df['CE Spread %'] = np.where(disp_df['CE_LTP'] > 0, round(((disp_df['CE Ask'] - disp_df['CE Bid']) / disp_df['CE_LTP']) * 100, 2), 0.0)
 disp_df['PE Spread %'] = np.where(disp_df['PE_LTP'] > 0, round(((disp_df['PE Ask'] - disp_df['PE Bid']) / disp_df['PE_LTP']) * 100, 2), 0.0)
 
-# --- STRICT USER-DEFINED EXACT SEQUENCE MATRIX LAYOUT ---
-# Left to Right: 
-# CE: CE Build -> CE OI -> CE OI Chg -> CE OI Chg% -> CE Vol -> CE Vol Chg -> CE Delta -> Gamma -> CE Theta -> CE Vega -> CE GEX -> CE Spread% -> CE Ask -> CE Bid -> CE_LTP
-# Center: STRIKE
-# Right: PE: PE_LTP -> PE Ask -> PE Bid -> PE Spread% -> PE OI -> PE OI Chg -> PE OI Chg% -> PE Vol -> PE Vol Chg -> PE Delta -> Gamma -> PE Theta -> PE Vega -> PE GEX -> PE Build
-
+# --- EXACT SEQUENCE MATRIX LAYOUT ---
 matrix_cols = [
     "CE Build", "CE OI (L)", "CE OI Chg", "CE OI Chg %", "CE Vol (M)", "CE Vol Chg",
     "CE Delta", "Gamma", "CE Theta", "CE Vega", "CE GEX (Cr)",
@@ -275,5 +270,43 @@ final_cols = [c for c in matrix_cols if c in disp_df.columns]
 matrix_df = disp_df[final_cols].copy()
 matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
 
-st.markdown(f"### 📊 Institutional Mirror Option Chain Matrix ({strike_range_mode})")
-st.dataframe(matrix_df, use_container_width=True, height=650, hide_index=True)v
+# --- COLOR STYLING FUNCTION ---
+def color_option_chain(val):
+    if isinstance(val, str):
+        if "Short Build" in val: return "background-color: #ffcccc; color: #990000; font-weight: bold;" # Bearish / Resistance build
+        if "Long Build" in val: return "background-color: #ccffcc; color: #006600; font-weight: bold;"  # Bullish / Support build
+        if "Short Cover" in val: return "background-color: #cce6ff; color: #003366; font-weight: bold;" # Momentum up
+        if "Long Unwind" in val: return "background-color: #fff2cc; color: #806600; font-weight: bold;" # Weakness
+    elif isinstance(val, (int, float)):
+        if val > 0: return "color: #008000; font-weight: bold;"
+        elif val < 0: return "color: #cc0000; font-weight: bold;"
+    return ""
+
+# Highlight ATM Strike row or general styling
+styled_df = matrix_df.style.map(color_option_chain)
+
+st.markdown(f"### 📊 Institutional Color-Coded Option Chain Matrix ({strike_range_mode})")
+st.dataframe(styled_df, use_container_width=True, height=650, hide_index=True)
+
+# --- COLOR LEGEND / CHEAT SHEET AT THE VERY BOTTOM ---
+st.markdown("---")
+st.markdown("### 🎨 Option Chain Color Legend & Representation Guide")
+st.markdown("यह गाइड दर्शाती है कि ऑप्शन चेन में विभिन्न रंगों और टैग्स का क्या अर्थ है:")
+
+col_l1, col_l2, col_l3, col_l4 = st.columns(4)
+
+with col_l1:
+    st.markdown("🟢 **Green Shading / Text**")
+    st.caption("• **Long Build / Positive Values:** यह दर्शाता है कि मार्केट में नया लॉन्ग पोजीशन या सपोर्ट बिल्ड-अप मजबूत हो रहा है (Bullish Bias).")
+
+with col_l2:
+    st.markdown("🔴 **Red / Pink Shading**")
+    st.caption("• **Short Build / Negative Values:** यह दर्शाता है कि कॉल/पुट साइड में शॉर्ट बिल्ड-अप या रेजिस्टेंस प्रेशर हावी हो रहा है (Bearish / Resistance).")
+
+with col_l3:
+    st.markdown("🔵 **Blue Shading**")
+    st.caption("• **Short Covering:** यह मोमेंटम अप-साइड या शॉर्ट्स के कटने की स्थिति को दर्शाता है (Quick Upward Move).")
+
+with col_l4:
+    st.markdown("🟡 **Yellow / Amber Shading**")
+    st.caption("• **Long Unwinding:** यह सौदों के कटने और कमजोरी (Weakness/Exit) को प्रदर्शित करता है.")
