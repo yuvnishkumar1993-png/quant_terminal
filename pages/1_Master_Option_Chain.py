@@ -27,7 +27,7 @@ except ImportError:
             return pd.DataFrame()
         @staticmethod
         def fetch_expiries(c, a, s, seg):
-            return ["2026-08-11", "2026-08-18", "2026-08-25"]
+            return ["2026-08-11", "2026-08-18"]
         @staticmethod
         def fetch_live_option_chain(c, a, s, seg, exp, sym):
             return pd.DataFrame(), 24570.65
@@ -65,17 +65,18 @@ with col_c1:
 client_id = st.session_state.get("client_id", "")
 access_token = st.session_state.get("access_token", "")
 
+# Strict Master Mapping with correct Dhan Security IDs, Segments & Default Lots
 master_dict = {
-    "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 65},
-    "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 15},
-    "FINNIFTY": {"sec_id": 27, "seg": "IDX_I", "lot": 25},
-    "SENSEX": {"sec_id": 51, "seg": "BSE_IDX", "lot": 20},
-    "RELIANCE": {"sec_id": 2885, "seg": "NSE_EQ", "lot": 250},
-    "TCS": {"sec_id": 11536, "seg": "NSE_EQ", "lot": 175},
-    "SBIN": {"sec_id": 3045, "seg": "NSE_EQ", "lot": 750}
+    "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 65, "step": 50},
+    "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 15, "step": 100},
+    "FINNIFTY": {"sec_id": 27, "seg": "IDX_I", "lot": 25, "step": 50},
+    "SENSEX": {"sec_id": 51, "seg": "BSE_IDX", "lot": 20, "step": 100},
+    "RELIANCE": {"sec_id": 2885, "seg": "NSE_EQ", "lot": 250, "step": 20},
+    "TCS": {"sec_id": 11536, "seg": "NSE_EQ", "lot": 175, "step": 20},
+    "SBIN": {"sec_id": 3045, "seg": "NSE_EQ", "lot": 750, "step": 10}
 }
-cfg = master_dict.get(selected_symbol.upper(), {"sec_id": 13, "seg": "IDX_I", "lot": 65})
-sec_id, seg, server_lot = cfg["sec_id"], cfg["seg"], cfg["lot"]
+cfg = master_dict.get(selected_symbol.upper(), master_dict["NIFTY"])
+sec_id, seg, server_lot, step_size = cfg["sec_id"], cfg["seg"], cfg["lot"], cfg["step"]
 
 try:
     expiries = InstitutionalDataEngine.fetch_expiries(client_id, access_token, sec_id, seg)
@@ -115,20 +116,18 @@ try:
     )
 except Exception:
     chain_df = pd.DataFrame()
-    live_spot = 78499.17 if selected_symbol == "SENSEX" else 24570.65
+    live_spot = cfg.get("spot", 24570.65)
 
 if chain_df is None or chain_df.empty:
-    spot_val = 78499.17 if selected_symbol == "SENSEX" else 24570.65
-    step = 100 if selected_symbol == "SENSEX" else 50
-    atm_st = round(spot_val / step) * step
-    strikes = np.arange(atm_st - (15 * step), atm_st + (16 * step), step)
+    spot_val = live_spot
+    atm_st = round(spot_val / step_size) * step_size
+    strikes = np.arange(atm_st - (15 * step_size), atm_st + (16 * step_size), step_size)
     recs = []
     for st_val in strikes:
-        iv_val = 13.91 if selected_symbol == "SENSEX" else 13.34
         recs.append({
             "Strike": int(st_val), "STRIKE": int(st_val),
-            "CE_OI": 600000, "Raw_CE_OI": 600000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": iv_val, "CE_LTP": max(1.0, spot_val - st_val + 50),
-            "PE_LTP": max(1.0, st_val - spot_val + 50), "PE_IV": iv_val, "PE_Volume": 1100000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 450000, "Raw_PE_OI": 450000
+            "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.0, "CE_LTP": max(1.0, spot_val - st_val + 50),
+            "PE_LTP": max(1.0, st_val - spot_val + 50), "PE_IV": 14.0, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 500000, "Raw_PE_OI": 500000
         })
     chain_df = pd.DataFrame(recs)
     live_spot = spot_val
@@ -159,9 +158,8 @@ def calculate_advanced_metrics(df, spot, lot):
         c_vol = row.get('CE_Volume', 100000)
         p_vol = row.get('PE_Volume', 100000)
         
-        def_iv = 13.91 if selected_symbol == "SENSEX" else 13.34
-        c_iv = max(5.0, row.get('CE_IV', def_iv)) / 100.0
-        p_iv = max(5.0, row.get('PE_IV', def_iv)) / 100.0
+        c_iv = max(5.0, row.get('CE_IV', 14.0)) / 100.0
+        p_iv = max(5.0, row.get('PE_IV', 14.0)) / 100.0
         sigma = (c_iv + p_iv) / 2.0
         
         try:
@@ -243,28 +241,19 @@ elif "±30" in strike_range_mode:
 else:
     disp_df = chain_df.copy()
 
-# Summary Metrics Bar calculations (ATM IV, OI PCR, Volume YPCR, Synthetic Future)
-step_size = 100 if selected_symbol == "SENSEX" else 50
-atm_strike_val = round(live_spot / step_size) * step_size
-
-# Find exact or closest ATM row in full chain for synthetic future & ATM IV
+# Summary Metrics Bar calculations
 chain_df['Atm_Dist'] = abs(chain_df['Strike'] - live_spot)
 atm_row = chain_df.loc[chain_df['Atm_Dist'].idxmin()]
-def_iv = 13.91 if selected_symbol == "SENSEX" else 13.34
-atm_iv = round((atm_row.get('CE_IV', def_iv) + atm_row.get('PE_IV', def_iv)) / 2.0, 2)
+atm_iv = round((atm_row.get('CE_IV', 14.0) + atm_row.get('PE_IV', 14.0)) / 2.0, 2)
 
-# Open Interest PCR calculation across full chain
 total_ce_oi = chain_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in chain_df.columns else chain_df['CE_OI'].sum()
 total_pe_oi = chain_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in chain_df.columns else chain_df['PE_OI'].sum()
 pcr_oi = round(total_pe_oi / total_ce_oi, 2) if total_ce_oi > 0 else 1.0
 
-# Volume PCR (YPCR) calculation across full chain
 total_ce_vol = chain_df['CE_Volume'].sum() if 'CE_Volume' in chain_df.columns else 1
 total_pe_vol = chain_df['PE_Volume'].sum() if 'PE_Volume' in chain_df.columns else 1
 pcr_vol = round(total_pe_vol / total_ce_vol, 2) if total_ce_vol > 0 else 1.0
 
-# Synthetic Future Price (Put-Call Parity: Spot + CE_LTP - PE_LTP at ATM)
-atm_st_val = atm_row.get('Strike', live_spot)
 atm_ce_ltp = atm_row.get('CE_LTP', 0.0)
 atm_pe_ltp = atm_row.get('PE_LTP', 0.0)
 synthetic_future = round(live_spot + (atm_ce_ltp - atm_pe_ltp), 2)
@@ -345,6 +334,8 @@ final_cols = [c for c in matrix_cols if c in disp_df.columns]
 matrix_df = disp_df[final_cols].copy()
 matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
 
+atm_strike_val = round(live_spot / step_size) * step_size
+
 # --- PROFESSIONAL INSTITUTIONAL STYLING FUNCTION ---
 def professional_terminal_styling(row):
     strike = row['STRIKE']
@@ -377,7 +368,7 @@ def professional_terminal_styling(row):
             elif "Long Build" in val:
                 styles[i] += '; background-color: #065f46; color: #6ee7b7; font-weight: bold;'
             elif "Short Cover" in val:
-                styles[i] += '; background-color: #1e3a8a; color: #93c5fd; font-weight: bold;'
+                styles[i] += '; background-config: #1e3a8a; color: #93c5fd; font-weight: bold;'
             elif "Long Unwind" in val:
                 styles[i] += '; background-color: #78350f; color: #fde68a; font-weight: bold;'
         elif isinstance(val, (int, float)):
