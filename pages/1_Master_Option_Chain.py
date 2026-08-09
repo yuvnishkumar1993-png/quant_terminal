@@ -6,6 +6,7 @@ import numpy as np
 import scipy.stats as si
 import plotly.graph_objects as go
 
+# Bulletproof Dynamic Path Resolution
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
@@ -37,6 +38,14 @@ def get_asset_master_config(symbol):
     if symbol.upper() in master_dict:
         cfg = master_dict[symbol.upper()]
         return cfg["sec_id"], cfg["seg"], cfg["lot"]
+        
+    df_scrip = InstitutionalDataEngine.load_scrip_master()
+    if not df_scrip.empty:
+        match = df_scrip[df_scrip['SEM_TRADING_SYMBOL'].str.upper() == symbol.upper()]
+        if not match.empty:
+            row = match.iloc[0]
+            return int(row['SEM_SMST_SECURITY_ID']), str(row['SEM_SEGMENT']), int(row.get('SEM_LOT_SIZE', 25))
+            
     return 13, "IDX_I", 25
 
 sec_id, seg, auto_lot_size = get_asset_master_config(selected_symbol)
@@ -123,7 +132,8 @@ def calculate_institutional_greeks_and_gex(df, spot, lot):
     df['CE Delta'] = ce_deltas
     df['CE Theta'] = ce_thetas
     df['Gamma'] = gammas
-    df['Vega'] = vegas
+    df['CE Vega'] = vegas
+    df['PE Vega'] = vegas
     df['PE Theta'] = pe_thetas
     df['PE Delta'] = pe_deltas
     df['Net_GEX'] = net_gexs
@@ -172,11 +182,10 @@ with tab1:
     with col_h2: st.metric(label="Spot Price", value=f"₹{live_spot:,.2f}")
     with col_h3: st.metric(label=f"ATM IV ({strike_range_mode})", value=f"{dynamic_atm_iv}%")
     with col_h4: st.metric(label=f"PCR ({strike_range_mode})", value=dynamic_pcr)
-    with col_h5: st.metric(label="Gamma Flip Pivot", value=f"₹{flip_strike:,.0f}", delta="Dealer Neutral")
+    with col_h5: st.metric(label="Gamma Flip Zone", value=f"₹{flip_strike:,.0f}", delta="Dealer Neutral")
 
     st.markdown("---")
 
-    # Build-up Classification Function
     def classify_buildup(chg_oi, pct_chg):
         if pct_chg > 0 and chg_oi > 0: return "🟢 Short Build"
         elif pct_chg < 0 and chg_oi < 0: return "🔴 Long Unwind"
@@ -186,32 +195,32 @@ with tab1:
     disp_df['CE Buildup'] = disp_df.apply(lambda r: classify_buildup(r.get('CE_Chg_OI', 0), r.get('CE_%Chg', 0)), axis=1)
     disp_df['PE Buildup'] = disp_df.apply(lambda r: classify_buildup(r.get('PE_Chg_OI', 0), r.get('PE_%Chg', 0)), axis=1)
 
-    # Format Columns for Display
     disp_df['STRIKE'] = disp_df['Strike']
     disp_df['CE OI (L)'] = round(disp_df.get('Raw_CE_OI', disp_df.get('CE_OI', 0)) / 100000, 2)
     disp_df['PE OI (L)'] = round(disp_df.get('Raw_PE_OI', disp_df.get('PE_OI', 0)) / 100000, 2)
     disp_df['CE Vol (M)'] = round(disp_df.get('CE_Volume', 0) / 1000000, 2)
     disp_df['PE Vol (M)'] = round(disp_df.get('PE_Volume', 0) / 1000000, 2)
 
-    # Column structuring
     matrix_cols = ["CE_LTP", "CE_%Chg", "CE_IV", "CE OI (L)", "CE_Chg_OI", "CE Vol (M)", "CE Buildup"]
     if show_greeks:
-        matrix_cols += ["CE Delta", "Gamma", "CE Theta", "Vega"]
+        matrix_cols += ["CE Delta", "Gamma", "CE Theta", "CE Vega"]
         
     matrix_cols += ["STRIKE"]
     
     if show_greeks:
-        matrix_cols += ["PE Delta", "PE Theta", "Vega"]
+        matrix_cols += ["PE Delta", "PE Theta", "PE Vega"]
         
     matrix_cols += ["PE Buildup", "PE Vol (M)", "PE_Chg_OI", "PE OI (L)", "PE_IV", "PE_%Chg", "PE_LTP"]
 
     final_cols = [c for c in matrix_cols if c in disp_df.columns]
     matrix_df = disp_df[final_cols].copy()
 
+    # Safety check to prevent duplicate column errors
+    matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
+
     st.markdown(f"### 📊 Master Option Chain Matrix ({strike_range_mode})")
     st.dataframe(matrix_df, use_container_width=True, height=540, hide_index=True)
 
-    # OI Concentration Walls Chart
     st.markdown("### 📈 Open Interest Concentration Walls (Support & Resistance)")
     wall_df = disp_df.copy()
     
