@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 class InstitutionalDataEngine:
     """
     Institutional Quant Data Engine for Dhan API & Fallback Engine.
-    Synchronized with asset-specific expiry schedules and market lots.
+    Synchronized with exact SENSEX strike rounding (multiples of 100) and market lot (20).
     """
 
     @staticmethod
@@ -17,13 +17,11 @@ class InstitutionalDataEngine:
     def fetch_expiries(client_id, access_token, sec_id, seg):
         """Fetches active expiry dates tailored specifically for the asset segment."""
         today = datetime.now()
-        
-        # Helper to generate upcoming Wednesdays for SENSEX or Tuesdays/Thursdays for others
         expiries = []
         days_ahead = 0
         
-        # SENSEX expiries are typically Wednesdays, Nifty on Thursdays
-        target_weekday = 2 if seg == "BSE_IDX" else 3 # 2 = Wednesday (Sensex), 3 = Thursday (Nifty)
+        # SENSEX expiries are Wednesdays, Nifty on Thursdays
+        target_weekday = 2 if seg == "BSE_IDX" else 3 
         
         while len(expiries) < 4:
             days_to_add = (target_weekday - today.weekday() + 7) % 7
@@ -39,7 +37,7 @@ class InstitutionalDataEngine:
     def fetch_live_option_chain(client_id, access_token, sec_id, seg, expiry_date, symbol):
         """
         Fetches live option chain data or generates robust institutional-grade 
-        fallback simulation with exact market parameters (SENSEX Spot ~78,499.17, Lot: 20).
+        fallback simulation with exact SENSEX parameters (Spot ~78,499.17, Lot: 20, Step: 100).
         """
         sym_upper = symbol.upper()
         
@@ -56,9 +54,11 @@ class InstitutionalDataEngine:
         spot = spot_dict.get(sym_upper, 24570.65)
         step = 100 if sym_upper == "SENSEX" else (50 if sym_upper in ["NIFTY", "BANKNIFTY", "FINNIFTY"] else 10)
         
-        strikes = np.arange(spot - (15 * step), spot + (16 * step), step)
-        recs = []
+        # Round spot to nearest step for clean symmetrical strike ladder
+        atm_strike = round(spot / step) * step
+        strikes = np.arange(atm_strike - (15 * step), atm_strike + (16 * step), step)
         
+        recs = []
         for st_val in strikes:
             iv_val = 13.91 if sym_upper == "SENSEX" else 14.25
             
