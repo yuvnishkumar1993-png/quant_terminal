@@ -128,7 +128,7 @@ if chain_df is None or chain_df.empty:
         recs.append({
             "Strike": int(st_val), "STRIKE": int(st_val),
             "CE_OI": 600000, "Raw_CE_OI": 600000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": iv_val, "CE_LTP": max(1.0, spot_val - st_val + 50),
-            "PE_LTP": max(1.0, st_val - spot_val + 50), "PE_IV": iv_val, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 450000, "Raw_PE_OI": 450000
+            "PE_LTP": max(1.0, st_val - spot_val + 50), "PE_IV": iv_val, "PE_Volume": 1100000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 450000, "Raw_PE_OI": 450000
         })
     chain_df = pd.DataFrame(recs)
     live_spot = spot_val
@@ -223,7 +223,7 @@ def calculate_advanced_metrics(df, spot, lot):
 
 chain_df = calculate_advanced_metrics(chain_df, live_spot, lot_size)
 
-# Strike filtering
+# Strike filtering for display
 if "±5" in strike_range_mode:
     chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
     center_idx = chain_df['Dist'].idxmin()
@@ -243,23 +243,38 @@ elif "±30" in strike_range_mode:
 else:
     disp_df = chain_df.copy()
 
-# Summary Metrics Bar & Dynamic PCR Calculation
+# Summary Metrics Bar calculations (ATM IV, OI PCR, Volume YPCR, Synthetic Future)
 disp_df['View_Dist'] = abs(disp_df['Strike'] - live_spot)
-atm_row = disp_df.loc[disp_df['View_Dist'].idxmin()]
+atm_row_idx = disp_df['View_Dist'].idxmin()
+atm_row = disp_df.loc[atm_row_idx]
 def_iv = 13.91 if selected_symbol == "SENSEX" else 13.34
 atm_iv = round((atm_row.get('CE_IV', def_iv) + atm_row.get('PE_IV', def_iv)) / 2.0, 2)
 disp_df = disp_df.drop(columns=['View_Dist'])
 
+# Open Interest PCR calculation across full chain
 total_ce_oi = chain_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in chain_df.columns else chain_df['CE_OI'].sum()
 total_pe_oi = chain_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in chain_df.columns else chain_df['PE_OI'].sum()
-pcr_val = round(total_pe_oi / total_ce_oi, 2) if total_ce_oi > 0 else 0.73
+pcr_oi = round(total_pe_oi / total_ce_oi, 2) if total_ce_oi > 0 else 0.73
 
+# Volume PCR (YPCR) calculation
+total_ce_vol = chain_df['CE_Volume'].sum() if 'CE_Volume' in chain_df.columns else 1000000
+total_pe_vol = chain_df['PE_Volume'].sum() if 'PE_Volume' in chain_df.columns else 1100000
+pcr_vol = round(total_pe_vol / total_ce_vol, 2) if total_ce_vol > 0 else 0.85
+
+# Synthetic Future Price (Put-Call Parity at ATM: Spot + CE_LTP - PE_LTP)
+atm_strike_price = atm_row.get('Strike', live_spot)
+atm_ce_ltp = atm_row.get('CE_LTP', 0.0)
+atm_pe_ltp = atm_row.get('PE_LTP', 0.0)
+synthetic_future = round(atm_strike_price + (atm_ce_ltp - atm_pe_ltp), 2)
+
+# --- ENHANCED 5-COLUMN SUMMARY METRICS BAR ---
 st.markdown("---")
-m1, m2, m3, m4 = st.columns(4)
+m1, m2, m3, m4, m5 = st.columns(5)
 with m1: st.metric("Underlying Asset", selected_symbol)
 with m2: st.metric("Live Spot Price", f"₹{live_spot:,.2f}")
-with m3: st.metric("ATM Implied Volatility", f"{atm_iv}%")
-with m4: st.metric("Put-Call Ratio (PCR)", pcr_val)
+with m3: st.metric("Synthetic Future (Near Expiry)", f"₹{synthetic_future:,.2f}")
+with m4: st.metric("ATM Implied Volatility", f"{atm_iv}%")
+with m5: st.metric("PCR (OI: {:.2f} | Vol: {:.2f})".format(pcr_oi, pcr_vol), f"{pcr_oi}")
 st.markdown("---")
 
 # Buildup helper
