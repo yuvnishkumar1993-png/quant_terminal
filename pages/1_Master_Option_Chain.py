@@ -201,16 +201,21 @@ with tab1:
     disp_df['CE Vol (M)'] = round(disp_df.get('CE_Volume', 0) / 1000000, 2)
     disp_df['PE Vol (M)'] = round(disp_df.get('PE_Volume', 0) / 1000000, 2)
 
-    matrix_cols = ["CE_LTP", "CE_%Chg", "CE_IV", "CE OI (L)", "CE_Chg_OI", "CE Vol (M)", "CE Buildup"]
+    # --- MACRO LEVEL COLUMN RE-POSITIONING (Mirror Layout) ---
+    # Call Side (Far to Near STRIKE): Vol -> OI -> OI Chg -> IV -> LTP Chg -> LTP (Sabse paas STRIKE ke)
+    # Put Side (Near STRIKE to Far): LTP (Sabse paas STRIKE ke) -> LTP Chg -> IV -> OI Chg -> OI -> Vol -> Volatility/Greeks
+    
+    matrix_cols = ["CE Vol (M)", "CE OI (L)", "CE_Chg_OI", "CE_IV", "CE_%Chg", "CE_LTP", "CE Buildup"]
     if show_greeks:
         matrix_cols += ["CE Delta", "Gamma", "CE Theta", "CE Vega"]
         
+    # Center Column
     matrix_cols += ["STRIKE"]
     
     if show_greeks:
         matrix_cols += ["PE Delta", "PE Theta", "PE Vega"]
         
-    matrix_cols += ["PE Buildup", "PE Vol (M)", "PE_Chg_OI", "PE OI (L)", "PE_IV", "PE_%Chg", "PE_LTP"]
+    matrix_cols += ["PE Buildup", "PE_LTP", "PE_%Chg", "PE_IV", "PE_Chg_OI", "PE OI (L)", "PE Vol (M)"]
 
     final_cols = [c for c in matrix_cols if c in disp_df.columns]
     matrix_df = disp_df[final_cols].copy()
