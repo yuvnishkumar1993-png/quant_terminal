@@ -30,18 +30,23 @@ except ImportError:
             return ["2026-08-11", "2026-08-18", "2026-08-25"]
         @staticmethod
         def fetch_live_option_chain(c, a, s, seg, exp, sym):
-            spot = 24570.65
-            strikes = np.arange(24050, 25100, 50)
+            spot_dict = {
+                "NIFTY": 24570.65, "BANKNIFTY": 51200.00, "FINNIFTY": 23400.00,
+                "SENSEX": 73200.00, "RELIANCE": 2950.00, "TCS": 4120.00, "SBIN": 820.00
+            }
+            spot = spot_dict.get(sym.upper(), 24570.65)
+            step = 100 if sym.upper() == "SENSEX" else 50
+            strikes = np.arange(spot - (10 * step), spot + (11 * step), step)
             recs = []
             for st_val in strikes:
                 recs.append({
                     "Strike": int(st_val), "STRIKE": int(st_val),
-                    "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.0, "CE_LTP": max(1.0, 24570.65 - st_val + 50),
-                    "PE_LTP": max(1.0, st_val - 24570.65 + 50), "PE_IV": 14.5, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 600000, "Raw_PE_OI": 600000
+                    "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.25, "CE_LTP": max(1.0, spot - st_val + 100),
+                    "PE_LTP": max(1.0, st_val - spot + 100), "PE_IV": 14.25, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 500000, "Raw_PE_OI": 500000
                 })
             return pd.DataFrame(recs), spot
 
-# Professional Styling Injection (Terminal Grade UI & Sticky Headers)
+# Professional Styling Injection
 st.markdown("""
 <style>
     .main { background-color: #0e1117; color: #f8fafc; }
@@ -124,17 +129,18 @@ try:
     )
 except Exception:
     chain_df = pd.DataFrame()
-    live_spot = 24570.65
+    live_spot = 73200.00 if selected_symbol == "SENSEX" else 24570.65
 
 if chain_df is None or chain_df.empty:
-    spot_val = 24570.65
-    strikes = np.arange(23500, 25500, 50)
+    spot_val = 73200.00 if selected_symbol == "SENSEX" else 24570.65
+    step = 100 if selected_symbol == "SENSEX" else 50
+    strikes = np.arange(spot_val - (15 * step), spot_val + (16 * step), step)
     recs = []
     for st_val in strikes:
         recs.append({
             "Strike": int(st_val), "STRIKE": int(st_val),
-            "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.0, "CE_LTP": max(1.0, 24570.65 - st_val + 50),
-            "PE_LTP": max(1.0, st_val - 24570.65 + 50), "PE_IV": 14.5, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 600000, "Raw_PE_OI": 600000
+            "CE_OI": 500000, "Raw_CE_OI": 500000, "CE_Chg_OI": 12000, "CE_%Chg": 1.5, "CE_Volume": 1000000, "CE_IV": 14.25, "CE_LTP": max(1.0, spot_val - st_val + 100),
+            "PE_LTP": max(1.0, st_val - spot_val + 100), "PE_IV": 14.25, "PE_Volume": 1000000, "PE_Chg_OI": -5000, "PE_%Chg": -0.8, "PE_OI": 500000, "Raw_PE_OI": 500000
         })
     chain_df = pd.DataFrame(recs)
     live_spot = spot_val
@@ -165,8 +171,8 @@ def calculate_advanced_metrics(df, spot, lot):
         c_vol = row.get('CE_Volume', 100000)
         p_vol = row.get('PE_Volume', 100000)
         
-        c_iv = max(5.0, row.get('CE_IV', 14.0)) / 100.0
-        p_iv = max(5.0, row.get('PE_IV', 14.5)) / 100.0
+        c_iv = max(5.0, row.get('CE_IV', 14.25)) / 100.0
+        p_iv = max(5.0, row.get('PE_IV', 14.25)) / 100.0
         sigma = (c_iv + p_iv) / 2.0
         
         try:
@@ -251,7 +257,7 @@ else:
 # Summary Metrics Bar
 disp_df['View_Dist'] = abs(disp_df['Strike'] - live_spot)
 atm_row = disp_df.loc[disp_df['View_Dist'].idxmin()]
-atm_iv = round((atm_row.get('CE_IV', 14.0) + atm_row.get('PE_IV', 14.5)) / 2.0, 2)
+atm_iv = round((atm_row.get('CE_IV', 14.25) + atm_row.get('PE_IV', 14.25)) / 2.0, 2)
 disp_df = disp_df.drop(columns=['View_Dist'])
 
 f_ce_oi = disp_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in disp_df.columns else disp_df['CE_OI'].sum()
@@ -332,13 +338,14 @@ final_cols = [c for c in matrix_cols if c in disp_df.columns]
 matrix_df = disp_df[final_cols].copy()
 matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
 
-atm_strike_val = round(live_spot / 50) * 50
+step_size = 100 if selected_symbol == "SENSEX" else 50
+atm_strike_val = round(live_spot / step_size) * step_size
 
 # --- PROFESSIONAL INSTITUTIONAL STYLING FUNCTION ---
 def professional_terminal_styling(row):
     strike = row['STRIKE']
     styles = [''] * len(row)
-    is_atm = abs(strike - live_spot) <= 25 or strike == atm_strike_val
+    is_atm = abs(strike - live_spot) <= (step_size / 2) or strike == atm_strike_val
     
     for i, col_name in enumerate(row.index):
         if col_name == 'STRIKE':
