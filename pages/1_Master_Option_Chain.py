@@ -16,7 +16,7 @@ st.set_page_config(page_title="Institutional Option Chain Desk", page_icon="⚡"
 st.markdown("## ⚡ Advanced Institutional Quant Option Chain & Master Signal Desk")
 st.markdown("---")
 
-# --- EMBEDDED ASSET & EXPIRY SELECTOR AT THE TOP OF THE PAGE ---
+# --- EMBEDDED ASSET & EXPIRY SELECTOR AT THE TOP ---
 col_sel1, col_sel2, col_sel3 = st.columns([2, 2, 4])
 
 with col_sel1:
@@ -28,8 +28,21 @@ with col_sel1:
 client_id = st.session_state.get("client_id", "")
 access_token = st.session_state.get("access_token", "")
 
+# Server-Side Scrip Master & Lot Size Auto-Fetching Logic
 @st.cache_data(ttl=3600)
-def get_asset_master_config(symbol):
+def get_server_scrip_and_lot(symbol):
+    df_scrip = InstitutionalDataEngine.load_scrip_master()
+    if not df_scrip.empty:
+        # Match exact symbol in segment (Index or Equity)
+        match = df_scrip[df_scrip['SEM_TRADING_SYMBOL'].str.upper() == symbol.upper()]
+        if not match.empty:
+            row = match.iloc[0]
+            sec_id = int(row['SEM_SMST_SECURITY_ID'])
+            seg = str(row['SEM_SEGMENT'])
+            lot = int(row.get('SEM_LOT_SIZE', 25))
+            return sec_id, seg, lot
+            
+    # Fallback Dictionary Mapping
     master_dict = {
         "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 25},
         "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 15},
@@ -39,20 +52,10 @@ def get_asset_master_config(symbol):
         "TCS": {"sec_id": 11536, "seg": "NSE_EQ", "lot": 175},
         "SBIN": {"sec_id": 3045, "seg": "NSE_EQ", "lot": 750}
     }
-    if symbol.upper() in master_dict:
-        cfg = master_dict[symbol.upper()]
-        return cfg["sec_id"], cfg["seg"], cfg["lot"]
-        
-    df_scrip = InstitutionalDataEngine.load_scrip_master()
-    if not df_scrip.empty:
-        match = df_scrip[df_scrip['SEM_TRADING_SYMBOL'].str.upper() == symbol.upper()]
-        if not match.empty:
-            row = match.iloc[0]
-            return int(row['SEM_SMST_SECURITY_ID']), str(row['SEM_SEGMENT']), int(row.get('SEM_LOT_SIZE', 25))
-            
-    return 13, "IDX_I", 25
+    cfg = master_dict.get(symbol.upper(), {"sec_id": 13, "seg": "IDX_I", "lot": 25})
+    return cfg["sec_id"], cfg["seg"], cfg["lot"]
 
-sec_id, seg, auto_lot_size = get_asset_master_config(selected_symbol)
+sec_id, seg, server_auto_lot = get_server_scrip_and_lot(selected_symbol)
 
 expiries = InstitutionalDataEngine.fetch_expiries(client_id, access_token, sec_id, seg)
 
@@ -72,13 +75,15 @@ show_greeks = st.sidebar.checkbox("Show Advanced Greeks (Delta, Gamma, Theta, Ve
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ⚙️ Lot Size Control")
+# Server se fetch kiya hua lot size automatically default value mein set rahega
 lot_size = st.sidebar.number_input(
-    "Verify / Override Lot Size", 
+    "Verify / Override Lot Size (Server Synced)", 
     min_value=1, 
     max_value=10000, 
-    value=int(auto_lot_size), 
+    value=int(server_auto_lot), 
     step=1,
-    key=f"lot_{selected_symbol}"
+    key=f"lot_{selected_symbol}",
+    help="यह लॉट साइज़ सीधे सर्वर (स्क्रीप मास्टर) से ऑटो-सिंक किया गया है।"
 )
 
 tab1, tab2, tab3 = st.tabs([
@@ -96,9 +101,11 @@ if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
     chain_df["Raw_CE_OI"] = chain_df["CE_OI"]
     chain_df["Raw_PE_OI"] = chain_df["PE_OI"]
 
+# Accurate Quantitative Calculation Engine (Greeks & GEX)
 def calculate_institutional_greeks_and_gex(df, spot, lot):
     r = 0.06 
-    T = 4 / 365.0 
+    T = max(1.0, (datetime.strptime(selected_expiry, "%Y-%m-%d") - datetime.now()).days) / 365.0
+    
     ce_deltas, pe_deltas = [], []
     gammas, ce_thetas, pe_thetas, vegas = [], [], [], []
     net_gexs = []
@@ -107,14 +114,18 @@ def calculate_institutional_greeks_and_gex(df, spot, lot):
         K = row['Strike']
         call_oi = row.get('Raw_CE_OI', row.get('CE_OI', 100000))
         put_oi = row.get('Raw_PE_OI', row.get('PE_OI', 100000))
-        c_iv = row.get('CE_IV', row.get('CE IV', 14.0)) / 100.0
-        sigma = max(c_iv, 0.01)
+        
+        # Safe IV handling
+        c_iv = max(5.0, row.get('CE_IV', 14.0)) / 100.0
+        p_iv = max(5.0, row.get('PE_IV', 14.5)) / 100.0
+        sigma = (c_iv + p_iv) / 2.0
         
         try:
             d1 = (np.log(spot / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
             d2 = d1 - sigma * np.sqrt(T)
             cdf_d1 = si.norm.cdf(d1)
             pdf_d1 = si.norm.pdf(d1)
+            
             c_delta = cdf_d1
             p_delta = cdf_d1 - 1.0
             gamma = pdf_d1 / (spot * sigma * np.sqrt(T))
@@ -125,6 +136,7 @@ def calculate_institutional_greeks_and_gex(df, spot, lot):
             c_delta, p_delta, gamma, c_theta, p_theta, vega = 0.5, -0.5, 0.001, -5.0, -5.0, 10.0
 
         net_gex = (call_oi - put_oi) * lot * (spot ** 2) * gamma / 1000000000.0
+        
         ce_deltas.append(round(c_delta, 2))
         pe_deltas.append(round(p_delta, 2))
         gammas.append(round(gamma, 5))
@@ -204,15 +216,11 @@ with tab1:
     disp_df['CE Vol (M)'] = round(disp_df.get('CE_Volume', 0) / 1000000, 2)
     disp_df['PE Vol (M)'] = round(disp_df.get('PE_Volume', 0) / 1000000, 2)
 
-    # --- MACRO LEVEL COLUMN RE-POSITIONING (Standard Mirror Layout) ---
-    # Call Side (Far to Near Strike): Vol -> OI -> OI Chg -> IV -> LTP Chg -> LTP (Sabse paas Strike ke)
-    # Put Side (Near Strike to Far): LTP (Sabse paas Strike ke) -> LTP Chg -> IV -> OI Chg -> OI -> Vol
-    
+    # Standard Mirror Layout Matrix Columns
     matrix_cols = ["CE Vol (M)", "CE OI (L)", "CE_Chg_OI", "CE_IV", "CE_%Chg", "CE_LTP", "CE Buildup"]
     if show_greeks:
         matrix_cols += ["CE Delta", "Gamma", "CE Theta", "CE Vega"]
         
-    # Center Column (Strike Price)
     matrix_cols += ["STRIKE"]
     
     if show_greeks:
