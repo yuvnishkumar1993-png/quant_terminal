@@ -1,10 +1,11 @@
 import pandas as pd
 import numpy as np
+from datetime import datetime, timedelta
 
 class InstitutionalDataEngine:
     """
     Institutional Quant Data Engine for Dhan API & Fallback Engine.
-    Synchronized with exact exchange specifications (SENSEX Lot: 20, Step: 100).
+    Synchronized with asset-specific expiry schedules and market lots.
     """
 
     @staticmethod
@@ -14,19 +15,34 @@ class InstitutionalDataEngine:
 
     @staticmethod
     def fetch_expiries(client_id, access_token, sec_id, seg):
-        """Fetches active expiry dates for the selected asset."""
-        # Standard upcoming weekly/monthly expiries
-        return ["2026-08-13", "2026-08-20", "2026-08-27"]
+        """Fetches active expiry dates tailored specifically for the asset segment."""
+        today = datetime.now()
+        
+        # Helper to generate upcoming Wednesdays for SENSEX or Tuesdays/Thursdays for others
+        expiries = []
+        days_ahead = 0
+        
+        # SENSEX expiries are typically Wednesdays, Nifty on Thursdays
+        target_weekday = 2 if seg == "BSE_IDX" else 3 # 2 = Wednesday (Sensex), 3 = Thursday (Nifty)
+        
+        while len(expiries) < 4:
+            days_to_add = (target_weekday - today.weekday() + 7) % 7
+            if days_to_add == 0:
+                days_to_add = 7
+            next_expiry = today + timedelta(days=days_to_add + days_ahead)
+            expiries.append(next_expiry.strftime("%Y-%m-%d"))
+            days_ahead += 7
+            
+        return expiries
 
     @staticmethod
     def fetch_live_option_chain(client_id, access_token, sec_id, seg, expiry_date, symbol):
         """
         Fetches live option chain data or generates robust institutional-grade 
-        fallback simulation with exact market parameters (e.g., SENSEX Spot ~78,499.17, Lot: 20).
+        fallback simulation with exact market parameters (SENSEX Spot ~78,499.17, Lot: 20).
         """
         sym_upper = symbol.upper()
         
-        # Accurate spot and step configurations matching exchange standards
         spot_dict = {
             "NIFTY": 24570.65, 
             "BANKNIFTY": 51200.00, 
@@ -40,7 +56,6 @@ class InstitutionalDataEngine:
         spot = spot_dict.get(sym_upper, 24570.65)
         step = 100 if sym_upper == "SENSEX" else (50 if sym_upper in ["NIFTY", "BANKNIFTY", "FINNIFTY"] else 10)
         
-        # Generate strike range around live spot
         strikes = np.arange(spot - (15 * step), spot + (16 * step), step)
         recs = []
         
