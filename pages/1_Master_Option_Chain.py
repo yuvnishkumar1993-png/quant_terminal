@@ -11,55 +11,47 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
 
-# Centralized Data Engine Import
 from dhan_api_engine import InstitutionalDataEngine
 
 st.set_page_config(page_title="Institutional Option Chain Desk", page_icon="⚡", layout="wide")
 st.markdown("## ⚡ Institutional Option Chain & Gamma Flip Terminal")
 st.markdown("---")
 
-# Safe Default Lot Sizes
-DEFAULT_LOTS = {
-    "NIFTY": 25,
-    "BANKNIFTY": 15,
-    "FINNIFTY": 25,
-    "SENSEX": 10,
-    "MIDCPNIFTY": 50,
-    "RELIANCE": 250,
-    "TCS": 175,
-    "SBIN": 750
-}
-
-# Global State se values uthayein
 selected_symbol = st.session_state.get("global_symbol", "NIFTY")
 client_id = st.session_state.get("client_id", "")
 access_token = st.session_state.get("access_token", "")
 
 st.sidebar.markdown(f"### 📌 Active Asset: `{selected_symbol}`")
 
-# Scrip Master load karke Security ID aur Segment nikalna
+# 1. Automatic Scrip Master Lookup (Security ID, Segment, & Lot Size)
 @st.cache_data(ttl=3600)
-def get_scrip_details(symbol):
+def get_scrip_and_lot_details(symbol):
     df_scrip = InstitutionalDataEngine.load_scrip_master()
     if not df_scrip.empty:
         match = df_scrip[df_scrip['SEM_TRADING_SYMBOL'].str.upper() == symbol.upper()]
         if not match.empty:
-            return int(match.iloc[0]['SEM_SMST_SECURITY_ID']), str(match.iloc[0]['SEM_SEGMENT'])
-    
+            row = match.iloc[0]
+            sec_id = int(row['SEM_SMST_SECURITY_ID'])
+            seg = str(row['SEM_SEGMENT'])
+            # Scrip master se lot size extract karna
+            lot_size = int(row.get('SEM_LOT_SIZE', 25))
+            return sec_id, seg, lot_size
+            
+    # Fallback default values
     defaults = {
-        "NIFTY": (13, "IDX_I"),
-        "BANKNIFTY": (25, "IDX_I"),
-        "FINNIFTY": (27, "IDX_I"),
-        "SENSEX": (51, "BSE_IDX"),
-        "RELIANCE": (2885, "NSE_EQ"),
-        "TCS": (11536, "NSE_EQ"),
-        "SBIN": (3045, "NSE_EQ")
+        "NIFTY": (13, "IDX_I", 25),
+        "BANKNIFTY": (25, "IDX_I", 15),
+        "FINNIFTY": (27, "IDX_I", 25),
+        "SENSEX": (51, "BSE_IDX", 10),
+        "RELIANCE": (2885, "NSE_EQ", 250),
+        "TCS": (11536, "NSE_EQ", 175),
+        "SBIN": (3045, "NSE_EQ", 750)
     }
-    return defaults.get(symbol, (13, "IDX_I"))
+    return defaults.get(symbol, (13, "IDX_I", 25))
 
-sec_id, seg = get_scrip_details(selected_symbol)
+sec_id, seg, auto_lot_size = get_scrip_and_lot_details(selected_symbol)
 
-# Expiry dates fetch karna engine ke through
+# 2. Automatically Fetch Live Expiries from API
 expiries = InstitutionalDataEngine.fetch_expiries(client_id, access_token, sec_id, seg)
 if not expiries:
     expiries = ["2026-08-13", "2026-08-20", "2026-08-27"]
@@ -73,18 +65,17 @@ strike_range_mode = st.sidebar.radio(
     key="strike_range_gex_master"
 )
 
-# Foolproof Lot Size Control
-default_lot = DEFAULT_LOTS.get(selected_symbol, 50)
+# 3. Lot Size Control (Auto-populated from Scrip Master with Override Option)
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ⚙️ Lot Size Control")
 lot_size = st.sidebar.number_input(
     "Verify / Override Lot Size", 
     min_value=1, 
     max_value=10000, 
-    value=int(default_lot), 
+    value=int(auto_lot_size), 
     step=1,
     key=f"lot_override_{selected_symbol}",
-    help="लॉट साइज़ पूरी तरह आपके नियंत्रण में है।"
+    help="स्कrip मास्टर से ऑटो-डिटेक्टेड लॉट साइज़।"
 )
 
 tab1, tab2, tab3 = st.tabs([
@@ -93,7 +84,7 @@ tab1, tab2, tab3 = st.tabs([
     "🚀 IV Smile, Sigma Bands & Strategy Desk"
 ])
 
-# Real-time Option Chain fetch using InstitutionalDataEngine
+# Fetch Real Option Chain Data
 chain_df, live_spot = InstitutionalDataEngine.fetch_live_option_chain(
     client_id, access_token, sec_id, seg, selected_expiry, selected_symbol
 )
@@ -115,7 +106,7 @@ def calculate_institutional_greeks_and_gex(df, spot, lot):
         call_oi = row.get('Raw_CE_OI', row.get('CE_OI', 100000))
         put_oi = row.get('Raw_PE_OI', row.get('PE_OI', 100000))
         
-        c_iv = row.get('CE_IV', row.get('CE IV', 16.0)) / 100.0
+        c_iv = row.get('CE_IV', row.get('CE IV', 14.0)) / 100.0
         sigma = max(c_iv, 0.01)
         
         try:
@@ -167,8 +158,8 @@ else:
 
 disp_df['View_Dist'] = abs(disp_df['Strike'] - live_spot)
 atm_row_view = disp_df.loc[disp_df['View_Dist'].idxmin()]
-c_iv_v = atm_row_view.get('CE_IV', atm_row_view.get('CE IV', 16.0))
-p_iv_v = atm_row_view.get('PE_IV', atm_row_view.get('PE IV', 16.0))
+c_iv_v = atm_row_view.get('CE_IV', atm_row_view.get('CE IV', 14.0))
+p_iv_v = atm_row_view.get('PE_IV', atm_row_view.get('PE IV', 14.5))
 dynamic_atm_iv = round((c_iv_v + p_iv_v) / 2.0, 2)
 disp_df = disp_df.drop(columns=['View_Dist'])
 
