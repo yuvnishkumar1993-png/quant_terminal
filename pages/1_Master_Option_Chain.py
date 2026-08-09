@@ -244,28 +244,30 @@ else:
     disp_df = chain_df.copy()
 
 # Summary Metrics Bar calculations (ATM IV, OI PCR, Volume YPCR, Synthetic Future)
-disp_df['View_Dist'] = abs(disp_df['Strike'] - live_spot)
-atm_row_idx = disp_df['View_Dist'].idxmin()
-atm_row = disp_df.loc[atm_row_idx]
+step_size = 100 if selected_symbol == "SENSEX" else 50
+atm_strike_val = round(live_spot / step_size) * step_size
+
+# Find exact or closest ATM row in full chain for synthetic future & ATM IV
+chain_df['Atm_Dist'] = abs(chain_df['Strike'] - live_spot)
+atm_row = chain_df.loc[chain_df['Atm_Dist'].idxmin()]
 def_iv = 13.91 if selected_symbol == "SENSEX" else 13.34
 atm_iv = round((atm_row.get('CE_IV', def_iv) + atm_row.get('PE_IV', def_iv)) / 2.0, 2)
-disp_df = disp_df.drop(columns=['View_Dist'])
 
 # Open Interest PCR calculation across full chain
 total_ce_oi = chain_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in chain_df.columns else chain_df['CE_OI'].sum()
 total_pe_oi = chain_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in chain_df.columns else chain_df['PE_OI'].sum()
-pcr_oi = round(total_pe_oi / total_ce_oi, 2) if total_ce_oi > 0 else 0.73
+pcr_oi = round(total_pe_oi / total_ce_oi, 2) if total_ce_oi > 0 else 1.0
 
-# Volume PCR (YPCR) calculation
-total_ce_vol = chain_df['CE_Volume'].sum() if 'CE_Volume' in chain_df.columns else 1000000
-total_pe_vol = chain_df['PE_Volume'].sum() if 'PE_Volume' in chain_df.columns else 1100000
-pcr_vol = round(total_pe_vol / total_ce_vol, 2) if total_ce_vol > 0 else 0.85
+# Volume PCR (YPCR) calculation across full chain
+total_ce_vol = chain_df['CE_Volume'].sum() if 'CE_Volume' in chain_df.columns else 1
+total_pe_vol = chain_df['PE_Volume'].sum() if 'PE_Volume' in chain_df.columns else 1
+pcr_vol = round(total_pe_vol / total_ce_vol, 2) if total_ce_vol > 0 else 1.0
 
-# Synthetic Future Price (Put-Call Parity at ATM: Spot + CE_LTP - PE_LTP)
-atm_strike_price = atm_row.get('Strike', live_spot)
+# Synthetic Future Price (Put-Call Parity: Spot + CE_LTP - PE_LTP at ATM)
+atm_st_val = atm_row.get('Strike', live_spot)
 atm_ce_ltp = atm_row.get('CE_LTP', 0.0)
 atm_pe_ltp = atm_row.get('PE_LTP', 0.0)
-synthetic_future = round(atm_strike_price + (atm_ce_ltp - atm_pe_ltp), 2)
+synthetic_future = round(live_spot + (atm_ce_ltp - atm_pe_ltp), 2)
 
 # --- ENHANCED 5-COLUMN SUMMARY METRICS BAR ---
 st.markdown("---")
@@ -342,9 +344,6 @@ else:
 final_cols = [c for c in matrix_cols if c in disp_df.columns]
 matrix_df = disp_df[final_cols].copy()
 matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
-
-step_size = 100 if selected_symbol == "SENSEX" else 50
-atm_strike_val = round(live_spot / step_size) * step_size
 
 # --- PROFESSIONAL INSTITUTIONAL STYLING FUNCTION ---
 def professional_terminal_styling(row):
