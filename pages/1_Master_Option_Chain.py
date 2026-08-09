@@ -41,7 +41,7 @@ except ImportError:
                 })
             return pd.DataFrame(recs), spot
 
-st.markdown("## ⚡ Institutional Sticky-Header Option Chain Desk")
+st.markdown("## ⚡ Institutional Split-Zone Option Chain Desk")
 st.markdown("---")
 
 # --- TOP EMBEDDED CONTROLS ---
@@ -81,7 +81,7 @@ with col_c2:
 strike_range_mode = st.sidebar.selectbox(
     "Option Chain Strike Range", 
     ["±5 Strikes", "±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"],
-    index=4, # Full chain by default so scrolling is fully utilized
+    index=1,
     key=f"range_{selected_symbol}"
 )
 
@@ -126,7 +126,7 @@ if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
     chain_df["Raw_CE_OI"] = chain_df["CE_OI"]
     chain_df["Raw_PE_OI"] = chain_df["PE_OI"]
 
-# Comprehensive Advanced Metrics Calculation Engine
+# Metrics Calculation Engine
 def calculate_advanced_metrics(df, spot, lot):
     r = 0.06 
     T = 2 / 365.0
@@ -303,61 +303,61 @@ final_cols = [c for c in matrix_cols if c in disp_df.columns]
 matrix_df = disp_df[final_cols].copy()
 matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
 
-# --- CUSTOM CSS FOR STICKY HEADERS & SMOOTH SCROLLING ---
-st.markdown("""
-<style>
-    /* Streamlit dataframe table styling for sticky headers */
-    [data-testid="stDataFrame"] div[data-testid="stTable"] {
-        overflow-y: auto;
-        max-height: 650px;
-    }
-    [data-testid="stDataFrame"] th {
-        position: sticky !important;
-        top: 0 !important;
-        background-color: #0e1117 !important;
-        color: white !important;
-        z-index: 999 !important;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Find ATM strike closest to live_spot for styling rows
+atm_strike_val = round(live_spot / 50) * 50
 
-# --- COLOR STYLING FUNCTION ---
-def color_option_chain(val):
-    if isinstance(val, str):
-        if "Short Build" in val: return "background-color: #ffcccc; color: #990000; font-weight: bold;"
-        if "Long Build" in val: return "background-color: #ccffcc; color: #006600; font-weight: bold;"
-        if "Short Cover" in val: return "background-color: #cce6ff; color: #003366; font-weight: bold;"
-        if "Long Unwind" in val: return "background-color: #fff2cc; color: #806600; font-weight: bold;"
-    elif isinstance(val, (int, float)):
-        if val > 0: return "color: #008000; font-weight: bold;"
-        elif val < 0: return "color: #cc0000; font-weight: bold;"
-    return ""
+# --- STYLING FUNCTION WITH SPOT SPLIT, CE/PE ZONES & ATM HIGHLIGHT ---
+def split_zone_styling(row):
+    strike = row['STRIKE']
+    styles = [''] * len(row)
+    
+    # Check ATM strike row
+    is_atm = abs(strike - live_spot) <= 25 or strike == atm_strike_val
+    
+    for i, col_name in enumerate(row.index):
+        if col_name == 'STRIKE':
+            if is_atm:
+                styles[i] = 'background-color: #ffd700; color: #000000; font-weight: bold; border: 2px solid #ff8c00;'
+            else:
+                styles[i] = 'background-color: #262730; color: #ffffff; font-weight: bold;'
+        elif 'CE' in col_name:
+            if strike < live_spot: # CE ITM
+                styles[i] = 'background-color: #1a2634; color: #e0e0e0;'
+            else: # CE OTM
+                styles[i] = 'background-color: #111823; color: #b0b0b0;'
+        elif 'PE' in col_name:
+            if strike > live_spot: # PE ITM
+                styles[i] = 'background-color: #2b1a1a; color: #e0e0e0;'
+            else: # PE OTM
+                styles[i] = 'background-color: #1c1111; color: #b0b0b0;'
+        else:
+            styles[i] = ''
+    return styles
 
-styled_df = matrix_df.style.map(color_option_chain)
+styled_df = matrix_df.style.apply(split_zone_styling, axis=1)
 
-st.markdown(f"### 📊 Institutional Sticky-Header Option Chain Matrix ({strike_range_mode})")
-st.info("📌 **सुविधा:** अब जब आप टेबल में ऊपर-नीचे (Vertical Scroll) या बाएं-दाएं स्क्रॉल करेंगे, तो कॉलम्स के नाम (Symbols/Headers) अपनी जगह पर स्टिकी रहेंगे ताकि आपको हमेशा पता रहे कि आप कौन सी वैल्यू देख रहे हैं।")
+st.markdown(f"### 📊 Institutional Split-Zone Option Chain Matrix ({strike_range_mode})")
+st.info("📌 **रंग विभाजन (Color Zones):**\n* 🟡 **पीला रंग (ATM Strike):** मौजूदा लाइव स्पॉट प्राइस ज़ोन।\n* 🔵 **कॉल साइड ज़ोन (बाएं):** स्पॉट के ऊपर (ITM) और नीचे (OTM) का अलग शेड।\n* 🔴 **पुट साइड ज़ोन (दाएं):** स्पॉट के ऊपर (OTM) और नीचे (ITM) का अलग शेड।")
 st.dataframe(styled_df, use_container_width=True, height=650, hide_index=True)
 
 # --- COLOR LEGEND / CHEAT SHEET AT THE VERY BOTTOM ---
 st.markdown("---")
-st.markdown("### 🎨 Option Chain Color Legend & Representation Guide")
-st.markdown("यह गाइड दर्शाती है कि ऑप्शन चेन में विभिन्न रंगों और टैग्स का क्या अर्थ है:")
+st.markdown("### 🎨 Option Chain Zone & Color Legend Guide")
 
 col_l1, col_l2, col_l3, col_l4 = st.columns(4)
 
 with col_l1:
-    st.markdown("🟢 **Green Shading / Text**")
-    st.caption("• **Long Build / Positive Values:** यह दर्शाता है कि मार्केट में नया लॉन्ग पोजीशन या सपोर्ट बिल्ड-अप मजबूत हो रहा है (Bullish Bias).")
+    st.markdown("🟡 **ATM Strike Highlight**")
+    st.caption("• मौजूदा लाइव स्पॉट प्राइस के सबसे नजदीक की स्ट्राइक को गोल्ड/पीले रंग से दर्शाया गया है।")
 
 with col_l2:
-    st.markdown("🔴 **Red / Pink Shading**")
-    st.caption("• **Short Build / Negative Values:** यह दर्शाता है कि कॉल/पुट साइड में शॉर्ट बिल्ड-अप या रेजिस्टेंस प्रेशर हावी हो रहा है (Bearish / Resistance).")
+    st.markdown("🔵 **Call Side (CE Zone)**")
+    st.caption("• बाएं हिस्से के कॉल डेटा को डार्क ब्लू टोन में रखा गया है जहाँ ITM और OTM का स्पष्ट अंतर दिखता है।")
 
 with col_l3:
-    st.markdown("🔵 **Blue Shading**")
-    st.caption("• **Short Covering:** यह मोमेंटम अप-साइड या शॉर्ट्स के कटने की स्थिति को दर्शाता है (Quick Upward Move).")
+    st.markdown("🔴 **Put Side (PE Zone)**")
+    st.caption("• दाएं हिस्से के पुट डेटा को डार्क रेड/मर्लोन टोन में रखा गया है ताकि कॉल और पुट में आसानी से फर्क किया जा सके।")
 
 with col_l4:
-    st.markdown("🟡 **Yellow / Amber Shading**")
-    st.caption("• **Long Unwinding:** यह सौदों के कटने और कमजोरी (Weakness/Exit) को प्रदर्शित करता है.")
+    st.markdown("📌 **Sticky Headers**")
+    st.caption("• नीचे स्क्रॉल करने पर भी सभी पैरामीटर्स के सिंबल और हेडर स्क्रीन पर फिक्स रहते हैं।")
