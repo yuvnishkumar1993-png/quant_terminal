@@ -1,23 +1,29 @@
 # app.py
-# Master 5-Page Dark Split Quant Core Engine UI (Standalone & Error-Free)
+# Master 5-Page Dark Split Quant Core Engine UI (Clean & Error-Free)
 
 import streamlit as st
-
-# Direct Theme Settings (No Import Errors)
-THEME_BG = "#0E1117"
 
 # Page Setup
 st.set_page_config(page_title="Dark Split Quant Terminal", layout="wide", initial_sidebar_state="expanded")
 
-# Custom Dark Terminal CSS Inject
-st.markdown(f"""
-    <style>
-    .stApp {{ background-color: {THEME_BG}; color: #FFFFFF; }}
-    .metric-card {{ background-color: #1E222D; padding: 15px; border-radius: 8px; border: 1px solid #2B2F3A; }}
-    </style>
-""", unsafe_allow_headers=True)
+# Custom Dark Terminal CSS Inject (Safe Single/Triple Quote Separation)
+dark_css = """
+<style>
+    .stApp {
+        background-color: #0E1117;
+        color: #FFFFFF;
+    }
+    .metric-card {
+        background-color: #1E222D;
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #2B2F3A;
+    }
+</style>
+"""
+st.markdown(dark_css, unsafe_allow_headers=True)
 
-# Safe Import of Dhan API Engine (Fallback to prevent crash if missing)
+# Safe Import of Dhan API Engine
 try:
     from dhan_api_engine import DhanAPIEngine
     api_engine = DhanAPIEngine()
