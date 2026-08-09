@@ -41,7 +41,7 @@ except ImportError:
                 })
             return pd.DataFrame(recs), spot
 
-st.markdown("## ⚡ Institutional Centered Quant Option Chain Desk")
+st.markdown("## ⚡ Institutional Sticky-Header Option Chain Desk")
 st.markdown("---")
 
 # --- TOP EMBEDDED CONTROLS ---
@@ -81,7 +81,7 @@ with col_c2:
 strike_range_mode = st.sidebar.selectbox(
     "Option Chain Strike Range", 
     ["±5 Strikes", "±10 Strikes", "±20 Strikes", "±30 Strikes", "Full Chain (All)"],
-    index=1, # Default to ±10 strikes for optimal central viewing
+    index=4, # Full chain by default so scrolling is fully utilized
     key=f"range_{selected_symbol}"
 )
 
@@ -111,7 +111,7 @@ except Exception:
 
 if chain_df is None or chain_df.empty:
     spot_val = 24570.65
-    strikes = np.arange(24050, 25100, 50)
+    strikes = np.arange(23500, 25500, 50)
     recs = []
     for st_val in strikes:
         recs.append({
@@ -211,17 +211,22 @@ def calculate_advanced_metrics(df, spot, lot):
 
 chain_df = calculate_advanced_metrics(chain_df, live_spot, lot_size)
 
-# Centered Strike Filtering (Middle to Left & Right focus)
-chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
-center_idx = chain_df['Dist'].idxmin()
-
+# Strike filtering
 if "±5" in strike_range_mode:
+    chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
+    center_idx = chain_df['Dist'].idxmin()
     disp_df = chain_df.iloc[max(0, center_idx-5):min(len(chain_df), center_idx+6)].copy()
 elif "±10" in strike_range_mode:
+    chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
+    center_idx = chain_df['Dist'].idxmin()
     disp_df = chain_df.iloc[max(0, center_idx-10):min(len(chain_df), center_idx+11)].copy()
 elif "±20" in strike_range_mode:
+    chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
+    center_idx = chain_df['Dist'].idxmin()
     disp_df = chain_df.iloc[max(0, center_idx-20):min(len(chain_df), center_idx+21)].copy()
 elif "±30" in strike_range_mode:
+    chain_df['Dist'] = abs(chain_df['Strike'] - live_spot)
+    center_idx = chain_df['Dist'].idxmin()
     disp_df = chain_df.iloc[max(0, center_idx-30):min(len(chain_df), center_idx+31)].copy()
 else:
     disp_df = chain_df.copy()
@@ -279,7 +284,7 @@ disp_df['PE Ask'] = round(disp_df['PE_LTP'] * 1.01, 2)
 disp_df['CE Spread %'] = np.where(disp_df['CE_LTP'] > 0, round(((disp_df['CE Ask'] - disp_df['CE Bid']) / disp_df['CE_LTP']) * 100, 2), 0.0)
 disp_df['PE Spread %'] = np.where(disp_df['PE_LTP'] > 0, round(((disp_df['PE Ask'] - disp_df['PE Bid']) / disp_df['PE_LTP']) * 100, 2), 0.0)
 
-# --- MATRIX LAYOUT WITH CENTERED STRIKE ---
+# --- MATRIX LAYOUT ---
 matrix_cols = [
     "CE Build", "CE GEX (Cr)", "CE Charm", "CE Vanna", "CE Vega", "CE Theta", "Gamma", "CE Delta",
     "CE Vol Chg %", "CE Vol Chg", "CE Vol (M)", "CE Turnover (Cr)", "CE OI Chg %", "CE OI Chg", "CE OI (L)",
@@ -298,13 +303,20 @@ final_cols = [c for c in matrix_cols if c in disp_df.columns]
 matrix_df = disp_df[final_cols].copy()
 matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
 
-# --- CUSTOM CSS FOR CENTERED ATM HIGHLIGHT & SCROLLING ---
+# --- CUSTOM CSS FOR STICKY HEADERS & SMOOTH SCROLLING ---
 st.markdown("""
 <style>
-    /* Custom styling to ensure smooth center focus on Option Chain */
-    div[data-testid="stDataFrame"] {
-        border-radius: 8px;
-        overflow: hidden;
+    /* Streamlit dataframe table styling for sticky headers */
+    [data-testid="stDataFrame"] div[data-testid="stTable"] {
+        overflow-y: auto;
+        max-height: 650px;
+    }
+    [data-testid="stDataFrame"] th {
+        position: sticky !important;
+        top: 0 !important;
+        background-color: #0e1117 !important;
+        color: white !important;
+        z-index: 999 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -323,8 +335,8 @@ def color_option_chain(val):
 
 styled_df = matrix_df.style.map(color_option_chain)
 
-st.markdown(f"### 📊 Institutional Centered Option Chain Matrix ({strike_range_mode})")
-st.info("💡 **मध्य (Middle-to-Left & Right) नेविगेशन:** स्ट्राइक प्राइस हमेशा केंद्र में रहती है, जिससे आप ATM से बाएं (Call Side) और दाएं (Put Side) आसानी से स्टडी कर सकते हैं।")
+st.markdown(f"### 📊 Institutional Sticky-Header Option Chain Matrix ({strike_range_mode})")
+st.info("📌 **सुविधा:** अब जब आप टेबल में ऊपर-नीचे (Vertical Scroll) या बाएं-दाएं स्क्रॉल करेंगे, तो कॉलम्स के नाम (Symbols/Headers) अपनी जगह पर स्टिकी रहेंगे ताकि आपको हमेशा पता रहे कि आप कौन सी वैल्यू देख रहे हैं।")
 st.dataframe(styled_df, use_container_width=True, height=650, hide_index=True)
 
 # --- COLOR LEGEND / CHEAT SHEET AT THE VERY BOTTOM ---
