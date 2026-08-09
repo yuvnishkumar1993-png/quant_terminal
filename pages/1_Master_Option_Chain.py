@@ -8,7 +8,7 @@ from datetime import datetime
 
 # Page Configuration
 st.set_page_config(
-    page_title="Institutional Option Chain Desk",
+    page_title="Institutional Quant Terminal Pro",
     page_icon="⚡",
     layout="wide"
 )
@@ -41,7 +41,18 @@ except ImportError:
                 })
             return pd.DataFrame(recs), spot
 
-st.markdown("## ⚡ Institutional Split-Zone Option Chain Desk")
+# Professional Styling Injection (Terminal Grade UI)
+st.markdown("""
+<style>
+    .main { background-color: #0e1117; color: #f8fafc; }
+    .stSelectbox, .stNumberInput { font-size: 14px; }
+    div.stMetric { background-color: #161b22; padding: 12px; border-radius: 8px; border: 1px solid #30363d; }
+    div.stMetric label { color: #8b949e !important; font-weight: 600; }
+    div.stMetric div[data-testid="stMetricValue"] { color: #f0f6fc !important; font-size: 22px !important; }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("## ⚡ Institutional Professional Quant Terminal")
 st.markdown("---")
 
 # --- TOP EMBEDDED CONTROLS ---
@@ -126,7 +137,7 @@ if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
     chain_df["Raw_CE_OI"] = chain_df["CE_OI"]
     chain_df["Raw_PE_OI"] = chain_df["PE_OI"]
 
-# Metrics Calculation Engine
+# Comprehensive Advanced Metrics Calculation Engine
 def calculate_advanced_metrics(df, spot, lot):
     r = 0.06 
     T = 2 / 365.0
@@ -303,61 +314,95 @@ final_cols = [c for c in matrix_cols if c in disp_df.columns]
 matrix_df = disp_df[final_cols].copy()
 matrix_df = matrix_df.loc[:, ~matrix_df.columns.duplicated()]
 
-# Find ATM strike closest to live_spot for styling rows
 atm_strike_val = round(live_spot / 50) * 50
 
-# --- STYLING FUNCTION WITH SPOT SPLIT, CE/PE ZONES & ATM HIGHLIGHT ---
-def split_zone_styling(row):
+# --- PROFESSIONAL INSTITUTIONAL STYLING FUNCTION ---
+def professional_terminal_styling(row):
     strike = row['STRIKE']
     styles = [''] * len(row)
-    
-    # Check ATM strike row
     is_atm = abs(strike - live_spot) <= 25 or strike == atm_strike_val
     
     for i, col_name in enumerate(row.index):
         if col_name == 'STRIKE':
             if is_atm:
-                styles[i] = 'background-color: #ffd700; color: #000000; font-weight: bold; border: 2px solid #ff8c00;'
+                styles[i] = 'background-color: #d97706; color: #ffffff; font-weight: bold; font-size: 15px; border: 2px solid #fbbf24;'
             else:
-                styles[i] = 'background-color: #262730; color: #ffffff; font-weight: bold;'
+                styles[i] = 'background-color: #1f2937; color: #f9fafb; font-weight: bold;'
         elif 'CE' in col_name:
             if strike < live_spot: # CE ITM
-                styles[i] = 'background-color: #1a2634; color: #e0e0e0;'
+                styles[i] = 'background-color: #111e38; color: #e2e8f0;'
             else: # CE OTM
-                styles[i] = 'background-color: #111823; color: #b0b0b0;'
+                styles[i] = 'background-color: #0f172a; color: #94a3b8;'
         elif 'PE' in col_name:
             if strike > live_spot: # PE ITM
-                styles[i] = 'background-color: #2b1a1a; color: #e0e0e0;'
+                styles[i] = 'background-color: #381116; color: #e2e8f0;'
             else: # PE OTM
-                styles[i] = 'background-color: #1c1111; color: #b0b0b0;'
+                styles[i] = 'background-color: #1e1114; color: #94a3b8;'
         else:
             styles[i] = ''
+            
+        # Text color enhancement for financial values
+        val = row[col_name]
+        if isinstance(val, str):
+            if "Short Build" in val:
+                styles[i] += '; background-color: #7f1d1d; color: #fca5a5; font-weight: bold;'
+            elif "Long Build" in val:
+                styles[i] += '; background-color: #065f46; color: #6ee7b7; font-weight: bold;'
+            elif "Short Cover" in val:
+                styles[i] += '; background-color: #1e3a8a; color: #93c5fd; font-weight: bold;'
+            elif "Long Unwind" in val:
+                styles[i] += '; background-color: #78350f; color: #fde68a; font-weight: bold;'
+        elif isinstance(val, (int, float)):
+            if val > 0 and col_name != 'STRIKE':
+                styles[i] += '; color: #34d399;'
+            elif val < 0:
+                styles[i] += '; color: #f87171;'
+                
     return styles
 
-styled_df = matrix_df.style.apply(split_zone_styling, axis=1)
+styled_df = matrix_df.style.apply(professional_terminal_styling, axis=1)
 
-st.markdown(f"### 📊 Institutional Split-Zone Option Chain Matrix ({strike_range_mode})")
-st.info("📌 **रंग विभाजन (Color Zones):**\n* 🟡 **पीला रंग (ATM Strike):** मौजूदा लाइव स्पॉट प्राइस ज़ोन।\n* 🔵 **कॉल साइड ज़ोन (बाएं):** स्पॉट के ऊपर (ITM) और नीचे (OTM) का अलग शेड।\n* 🔴 **पुट साइड ज़ोन (दाएं):** स्पॉट के ऊपर (OTM) और नीचे (ITM) का अलग शेड।")
+# Custom CSS for sticky headers and gorgeous layout
+st.markdown("""
+<style>
+    [data-testid="stDataFrame"] {
+        border: 1px solid #30363d;
+        border-radius: 8px;
+    }
+    [data-testid="stDataFrame"] th {
+        position: sticky !important;
+        top: 0 !important;
+        background-color: #161b22 !important;
+        color: #f0f6fc !important;
+        font-weight: 600 !important;
+        z-index: 999 !important;
+        border-bottom: 2px solid #30363d !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown(f"### 📊 Professional Institutional Option Chain ({strike_range_mode})")
+st.markdown("---")
 st.dataframe(styled_df, use_container_width=True, height=650, hide_index=True)
 
-# --- COLOR LEGEND / CHEAT SHEET AT THE VERY BOTTOM ---
+# --- PROFESSIONAL COLOR LEGEND / CHEAT SHEET AT THE BOTTOM ---
 st.markdown("---")
-st.markdown("### 🎨 Option Chain Zone & Color Legend Guide")
+st.markdown("### 🎨 Professional Terminal Color Legend Guide")
 
 col_l1, col_l2, col_l3, col_l4 = st.columns(4)
 
 with col_l1:
-    st.markdown("🟡 **ATM Strike Highlight**")
-    st.caption("• मौजूदा लाइव स्पॉट प्राइस के सबसे नजदीक की स्ट्राइक को गोल्ड/पीले रंग से दर्शाया गया है।")
+    st.markdown("🟡 **Gold / Amber ATM Highlight**")
+    st.caption("• मौजूदा लाइव स्पॉट प्राइस (ATM Strike) को सुनहरे रंग से पिन किया गया है।")
 
 with col_l2:
-    st.markdown("🔵 **Call Side (CE Zone)**")
-    st.caption("• बाएं हिस्से के कॉल डेटा को डार्क ब्लू टोन में रखा गया है जहाँ ITM और OTM का स्पष्ट अंतर दिखता है।")
+    st.markdown("🔵 **Call Side Zones (ITM vs OTM)**")
+    st.caption("• बाएं हिस्से में कॉल ITM (गहरा नीला) और OTM (स्लेट) को अलग स्पष्टता दी गई है।")
 
 with col_l3:
-    st.markdown("🔴 **Put Side (PE Zone)**")
-    st.caption("• दाएं हिस्से के पुट डेटा को डार्क रेड/मर्लोन टोन में रखा गया है ताकि कॉल और पुट में आसानी से फर्क किया जा सके।")
+    st.markdown("🔴 **Put Side Zones (ITM vs OTM)**")
+    st.caption("• दाएं हिस्से में पुट ITM (गहरा महरून) और OTM (डार्क टोन) को अलग दर्शाया गया है।")
 
 with col_l4:
-    st.markdown("📌 **Sticky Headers**")
-    st.caption("• नीचे स्क्रॉल करने पर भी सभी पैरामीटर्स के सिंबल और हेडर स्क्रीन पर फिक्स रहते हैं।")
+    st.markdown("🟢 / 🔴 **Institutional Buildup Tags**")
+    st.caption("• Long Build (हरा), Short Build (लाल), Short Cover (नीला) और Long Unwind (पीला)।")
