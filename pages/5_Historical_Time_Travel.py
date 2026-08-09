@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
-from dhan_api_engine import DhanAPIEngine
+from backend import get_market_data
 
 st.set_page_config(layout="wide")
-st.title("🕰️ PAGE 5: HISTORICAL TIME-TRAVEL & BACKTESTING DESK")
-
 asset = st.session_state.get("selected_asset", "SENSEX")
-api_engine = DhanAPIEngine()
-spot, _, _, _, net_gex = api_engine.get_market_data(asset)
+spot, _, _, _, net_gex = get_market_data(asset)
+
+st.header(f"🕰️ PAGE 5: HISTORICAL TIME-TRAVEL & BACKTESTING DESK — {asset}")
 
 st.markdown("""
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
