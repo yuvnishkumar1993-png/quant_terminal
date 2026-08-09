@@ -359,7 +359,6 @@ def professional_terminal_styling(row):
         else:
             styles[i] = ''
             
-        # Text color enhancement for financial values
         val = row[col_name]
         if isinstance(val, str):
             if "Short Build" in val:
@@ -383,25 +382,3 @@ styled_df = matrix_df.style.apply(professional_terminal_styling, axis=1)
 st.markdown(f"### 📊 Professional Institutional Option Chain ({strike_range_mode})")
 st.markdown("---")
 st.dataframe(styled_df, use_container_width=True, height=650, hide_index=True)
-
-# --- PROFESSIONAL COLOR LEGEND / CHEAT SHEET AT THE BOTTOM ---
-st.markdown("---")
-st.markdown("### 🎨 Professional Terminal Color Legend Guide")
-
-col_l1, col_l2, col_l3, col_l4 = st.columns(4)
-
-with col_l1:
-    st.markdown("🟡 **Gold / Amber ATM Highlight**")
-    st.caption("• मौजूदा लाइव स्पॉट प्राइस (ATM Strike) को सुनहरे रंग से पिन किया गया है।")
-
-with col_l2:
-    st.markdown("🔵 **Call Side Zones (ITM vs OTM)**")
-    st.caption("• बाएं हिस्से में कॉल ITM (गहरा नीला) और OTM (स्लेट) को अलग स्पष्टता दी गई है।")
-
-with col_l3:
-    st.markdown("🔴 **Put Side Zones (ITM vs OTM)**")
-    st.caption("• दाएं हिस्से में पुट ITM (गहरा महरून) और OTM (डार्क टोन) को अलग दर्शाया गया है।")
-
-with col_l4:
-    st.markdown("🟢 / 🔴 **Institutional Buildup Tags**")
-    st.caption("• Long Build (हरा), Short Build (लाल), Short Cover (नीला) और Long Unwind (पीला)।")v
