@@ -148,15 +148,19 @@ class InstitutionalDataEngine:
                     
                     response = requests.post(url, json=payload, headers=headers, timeout=5)
                     
-                    # 🔍 यहाँ प्रिंट जोड़ दिया है ताकि टर्मिनल पर असली वजह दिखे
                     print(f"👉 Dhan API Status Code: {response.status_code}")
                     print(f"👉 Dhan API Response Text: {response.text}")
                     
                     if response.status_code == 200:
-                        data = response.json().get('data', {})
+                        raw_json = response.json()
+                        print(f"👉 DHAN API FULL JSON RESPONSE: {raw_json}")
+                        
+                        data = raw_json.get('data', {})
                         if data and 'oc' in data:
                             result_df, result_spot = InstitutionalDataEngine._parse_dhan_oc(data, sym_upper, cfg["lot"])
                             break 
+                        else:
+                            print("⚠️ WARNING: 'oc' key not found in Dhan response data!")
                     elif response.status_code == 429:
                         time.sleep(InstitutionalDataEngine.RETRY_DELAY * (2 ** attempt))
                         continue
