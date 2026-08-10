@@ -33,6 +33,8 @@ except ImportError:
         def fetch_live_option_chain(c, a, s, seg, exp, sym): return pd.DataFrame(), 24570.65
         @staticmethod
         def get_lot_size(sym): raise AttributeError
+        @staticmethod
+        def save_api_session(c, a): return True
 
 # Professional Styling
 st.markdown("""
@@ -47,6 +49,32 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# ==========================================
+# SIDEBAR: Broker Authentication (Added)
+# ==========================================
+st.sidebar.markdown("## 🔐 Broker Authentication")
+st.sidebar.markdown("Dhan API Secure Gateway")
+
+# Session state initialization
+if "client_id" not in st.session_state:
+    st.session_state["client_id"] = ""
+if "access_token" not in st.session_state:
+    st.session_state["access_token"] = ""
+
+input_client_id = st.sidebar.text_input("Client ID", value=st.session_state["client_id"])
+input_access_token = st.sidebar.text_input("Access Token", type="password", value=st.session_state["access_token"])
+
+if st.sidebar.button("💾 Save & Connect API"):
+    if input_client_id and input_access_token:
+        st.session_state["client_id"] = input_client_id
+        st.session_state["access_token"] = input_access_token
+        InstitutionalDataEngine.save_api_session(input_client_id, input_access_token)
+        st.sidebar.success("API Connected Successfully!")
+    else:
+        st.sidebar.warning("Please enter both Client ID and Access Token.")
+
+st.sidebar.markdown("---")
 
 st.markdown("## ⚡ Institutional Quant Terminal Pro")
 st.markdown("---")
@@ -65,11 +93,11 @@ with col_c1:
 client_id = st.session_state.get("client_id", "")
 access_token = st.session_state.get("access_token", "")
 
-# 🎯 MASTER FIX: User Specific Lot Sizes (Nifty 65, BankNifty 30, Sensex 20)
+# 🎯 CORRECTED MASTER DICTIONARY: Fixed segment from "IDX_I" to "IDX" for Indices
 master_dict = {
-    "NIFTY": {"sec_id": 13, "seg": "IDX_I", "lot": 65, "step": 50, "spot": 24570.65},
-    "BANKNIFTY": {"sec_id": 25, "seg": "IDX_I", "lot": 30, "step": 100, "spot": 51200.00},
-    "FINNIFTY": {"sec_id": 27, "seg": "IDX_I", "lot": 40, "step": 50, "spot": 23400.00},
+    "NIFTY": {"sec_id": 13, "seg": "IDX", "lot": 65, "step": 50, "spot": 24570.65},
+    "BANKNIFTY": {"sec_id": 25, "seg": "IDX", "lot": 30, "step": 100, "spot": 51200.00},
+    "FINNIFTY": {"sec_id": 27, "seg": "IDX", "lot": 40, "step": 50, "spot": 23400.00},
     "SENSEX": {"sec_id": 51, "seg": "BSE_IDX", "lot": 20, "step": 100, "spot": 78500.00},
     "RELIANCE": {"sec_id": 2885, "seg": "NSE_EQ", "lot": 250, "step": 20, "spot": 2950.00},
     "TCS": {"sec_id": 11536, "seg": "NSE_EQ", "lot": 175, "step": 20, "spot": 4120.00},
@@ -103,7 +131,6 @@ except AttributeError:
     auto_lot = default_lot
 
 with col_c5:
-    # 🔒 DISABLED = TRUE: Now it will auto-select the lot size and lock it!
     lot_size = st.number_input("⚙️ Lot (Auto-Fetched)", value=int(auto_lot), disabled=True, key=f"lot_{selected_symbol}")
 
 # ==========================================
@@ -142,7 +169,6 @@ if "Raw_CE_OI" not in chain_df.columns and "CE_OI" in chain_df.columns:
 def calculate_advanced_metrics(df, spot, lot, expiry_str):
     r = 0.06 
     
-    # Dynamic Expiry Calculation for perfect Greeks
     try:
         exp_date = datetime.strptime(expiry_str, "%Y-%m-%d")
         days_left = (exp_date - datetime.now()).days
@@ -209,7 +235,6 @@ def calculate_advanced_metrics(df, spot, lot, expiry_str):
     df['CE Turnover (Cr)'] = ce_turnovers; df['PE Turnover (Cr)'] = pe_turnovers
     return df
 
-# Apply calculations
 chain_df = calculate_advanced_metrics(chain_df, live_spot, lot_size, selected_expiry)
 
 # ==========================================
@@ -234,7 +259,6 @@ elif "±30" in strike_range_mode:
 else:
     disp_df = chain_df.copy()
 
-# Summary Metrics Setup
 disp_df['View_Dist'] = abs(disp_df['Strike'] - live_spot)
 atm_row = disp_df.loc[disp_df['View_Dist'].idxmin()]
 atm_iv = round((atm_row.get('CE_IV', 14.0) + atm_row.get('PE_IV', 14.5)) / 2.0, 2)
@@ -244,7 +268,6 @@ f_ce_oi = disp_df['Raw_CE_OI'].sum() if 'Raw_CE_OI' in disp_df.columns else disp
 f_pe_oi = disp_df['Raw_PE_OI'].sum() if 'Raw_PE_OI' in disp_df.columns else disp_df['PE_OI'].sum()
 pcr_val = round(f_pe_oi / f_ce_oi, 2) if f_ce_oi > 0 else 1.0
 
-# Summary Metrics Display
 st.markdown("---")
 m1, m2, m3, m4 = st.columns(4)
 with m1: st.metric("Underlying Asset", selected_symbol)
@@ -253,7 +276,6 @@ with m3: st.metric("ATM Implied Volatility", f"{atm_iv}%")
 with m4: st.metric("Put-Call Ratio (PCR)", pcr_val)
 st.markdown("---")
 
-# Buildup logic
 def get_buildup(chg_oi, pct_chg):
     if pct_chg > 0 and chg_oi > 0: return "Short Build"
     elif pct_chg < 0 and chg_oi < 0: return "Long Unwind"
@@ -263,7 +285,6 @@ def get_buildup(chg_oi, pct_chg):
 disp_df['CE Build'] = disp_df.apply(lambda r: get_buildup(r.get('CE_Chg_OI', 0), r.get('CE_%Chg', 0)), axis=1)
 disp_df['PE Build'] = disp_df.apply(lambda r: get_buildup(r.get('PE_Chg_OI', 0), r.get('PE_%Chg', 0)), axis=1)
 
-# Format Final Display Columns
 disp_df['STRIKE'] = disp_df['Strike']
 disp_df['CE OI (L)'] = round(disp_df.get('Raw_CE_OI', disp_df.get('CE_OI', 0)) / 100000, 2)
 disp_df['PE OI (L)'] = round(disp_df.get('Raw_PE_OI', disp_df.get('PE_OI', 0)) / 100000, 2)
