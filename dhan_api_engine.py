@@ -138,7 +138,7 @@ class InstitutionalDataEngine:
         registry = InstitutionalDataEngine._get_universal_registry()
         cfg = registry.get(sym_upper, {"lot": 50})
         
-        # 3. LIVE API CALL (Only if valid keys are present)
+       # 3. LIVE API CALL (With Debug Logging)
         if final_client and final_token:
             for attempt in range(InstitutionalDataEngine.MAX_RETRIES):
                 try:
@@ -148,6 +148,10 @@ class InstitutionalDataEngine:
                     
                     response = requests.post(url, json=payload, headers=headers, timeout=5)
                     
+                    # 🔍 यहाँ प्रिंट जोड़ दिया है ताकि टर्मिनल पर असली वजह दिखे
+                    print(f"👉 Dhan API Status Code: {response.status_code}")
+                    print(f"👉 Dhan API Response Text: {response.text}")
+                    
                     if response.status_code == 200:
                         data = response.json().get('data', {})
                         if data and 'oc' in data:
@@ -156,8 +160,12 @@ class InstitutionalDataEngine:
                     elif response.status_code == 429:
                         time.sleep(InstitutionalDataEngine.RETRY_DELAY * (2 ** attempt))
                         continue
-                    else: break
-                except Exception: break 
+                    else: 
+                        logger.error(f"API Error Status: {response.status_code} - {response.text}")
+                        break
+                except Exception as e: 
+                    logger.error(f"API Exception caught: {str(e)}")
+                    break
 
         # 4. 🚨 THE GOD-MODE FIX: If API Fails or is Disconnected, Generate REALISTIC DATA instead of Zeros!
         if result_df is None or result_df.empty or result_spot == 0.0:
